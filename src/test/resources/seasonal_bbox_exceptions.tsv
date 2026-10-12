@@ -16,5 +16,5 @@
 #
 3748 9373 0	Evil Eye "Morytania - Araxxor" destination — chunk region id 14994 absent from generated regions.tsv, classifies NEUTRAL; upstream row has no Region override
 3808 9700 0	Evil Eye "Morytania - The Nightmare" destination — chunk region id 15255 absent from generated regions.tsv, classifies NEUTRAL; upstream row has no Region override
-2967 4254 0	Evil Eye "Wilderness - Corporeal Beast" destination — chunk region id 11842 absent from generated regions.tsv, classifies NEUTRAL; same tile is also a walkability exception (boss-chamber arrival)
+2964 4382 2	Evil Eye "Wilderness - Corporeal Beast" destination — chunk region id 11844 absent from generated regions.tsv, classifies NEUTRAL; upstream #766 moved the landing inside the cave
 2271 4680 0	Evil Eye "Wilderness - King Black Dragon" destination — chunk region id 9033 absent from generated regions.tsv, classifies NEUTRAL; upstream row has no Region override
