@@ -2,10 +2,10 @@ package shortestpath.dashboard;
 
 import java.util.List;
 import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.BoatHull;
 import shortestpath.pathfinder.CollisionMap;
 import shortestpath.pathfinder.PathStep;
-import shortestpath.pathfinder.SailingMoves;
+import shortestpath.pathfinder.sailing.BoatHull;
+import shortestpath.pathfinder.sailing.SailingMoves;
 
 /**
  * How far a path at sea goes, how many straight legs it has and how many ticks a boat takes to sail it, to
