@@ -4,12 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.BoatHull;
 import shortestpath.pathfinder.PathStep;
-import shortestpath.pathfinder.Pathfinder;
 import shortestpath.pathfinder.PathfinderResult;
-import shortestpath.pathfinder.SailingMoves;
 import shortestpath.pathfinder.TestPathfinderConfig;
+import shortestpath.pathfinder.sailing.BoatHull;
+import shortestpath.pathfinder.sailing.SailingMoves;
+import shortestpath.pathfinder.sailing.SailingPathfinder;
 
 /** Searches a route with the sailing search and records what the dashboard draws of it. */
 public class SailingRouteRunnerImpl implements SailingRouteRunner {
@@ -19,8 +19,8 @@ public class SailingRouteRunnerImpl implements SailingRouteRunner {
         double speed = scenario.getSailingSpeed().orElseThrow();
         SailingMoves moves = SailingMoves.forSpeed(speed);
         BoatHull hull = SailingBoats.hull(scenario.getBoat());
-        Pathfinder pathfinder = new Pathfinder(config, scenario.getStartPoint(), Set.of(scenario.getEndPoint()), null,
-            moves, hull);
+        SailingPathfinder pathfinder = new SailingPathfinder(config, scenario.getStartPoint(),
+            Set.of(scenario.getEndPoint()), null, moves, hull);
         pathfinder.run();
         PathfinderResult result = pathfinder.getResult();
 

@@ -1,7 +1,7 @@
 package shortestpath.dashboard;
 
 import java.util.List;
-import shortestpath.pathfinder.BoatHull;
+import shortestpath.pathfinder.sailing.BoatHull;
 
 /**
  * The player-owned boats' hulls, as the game's world entity bounds give them (local units, 128 per tile:

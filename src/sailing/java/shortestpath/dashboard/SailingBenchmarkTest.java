@@ -31,11 +31,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;
 import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.BoatHull;
+import shortestpath.pathfinder.ActiveSearch;
 import shortestpath.pathfinder.PathStep;
 import shortestpath.pathfinder.Pathfinder;
 import shortestpath.pathfinder.PathfinderResult;
-import shortestpath.pathfinder.SailingMoves;
+import shortestpath.pathfinder.sailing.BoatHull;
+import shortestpath.pathfinder.sailing.SailingMoves;
+import shortestpath.pathfinder.sailing.SailingPathfinder;
 
 /**
  * Times the experimental sailing search against the existing search on routes at sea.
@@ -207,7 +209,7 @@ public class SailingBenchmarkTest {
                 for (int i = 0; i < searches.size(); i++) {
                     System.gc();
                     long before = System.nanoTime();
-                    Pathfinder pathfinder = searchOnce(applied, route, searches.get(i));
+                    ActiveSearch pathfinder = searchOnce(applied, route, searches.get(i));
                     long wallNanos = System.nanoTime() - before;
                     if (round < warmup) {
                         continue;
@@ -262,8 +264,8 @@ public class SailingBenchmarkTest {
         SailingMoves moves = SailingMoves.forSpeed(row.getSailingSpeed().getAsDouble());
         Pathfinder normal = new Pathfinder(applied.pathfinderConfig, row.getStartPoint(), Set.of(row.getEndPoint()));
         normal.run();
-        Pathfinder sailing = new Pathfinder(applied.pathfinderConfig, row.getStartPoint(), Set.of(row.getEndPoint()), null,
-            moves, SailingBoats.hull(row.getBoat()));
+        SailingPathfinder sailing = new SailingPathfinder(applied.pathfinderConfig, row.getStartPoint(),
+            Set.of(row.getEndPoint()), null, moves, SailingBoats.hull(row.getBoat()));
         sailing.run();
 
         Comparison comparison = new Comparison();
@@ -330,9 +332,9 @@ public class SailingBenchmarkTest {
         return route.getName().replaceFirst("\\s*\\([^)]*\\)$", "");
     }
 
-    private static Pathfinder searchOnce(DashboardScenarioRunner.ApplyResult applied, DashboardScenario route, Search search) {
-        Pathfinder pathfinder = search.isSailing()
-            ? new Pathfinder(applied.pathfinderConfig, route.getStartPoint(), Set.of(route.getEndPoint()), null,
+    private static ActiveSearch searchOnce(DashboardScenarioRunner.ApplyResult applied, DashboardScenario route, Search search) {
+        ActiveSearch pathfinder = search.isSailing()
+            ? new SailingPathfinder(applied.pathfinderConfig, route.getStartPoint(), Set.of(route.getEndPoint()), null,
                 SailingMoves.forSpeed(search.speed), SailingBoats.hull(search.boat))
             : new Pathfinder(applied.pathfinderConfig, route.getStartPoint(), Set.of(route.getEndPoint()));
         pathfinder.run();
