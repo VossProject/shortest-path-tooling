@@ -134,6 +134,7 @@ SCENARIO_CONFIG_KEYS = frozenset({
     "pohJewelleryBoxTier", "unreachableTargetDistanceThreshold",
     "collisionAwareBlockedTargets",
     "unlockCanoeAxe", "unlockXericsHonour", "unlockDragontoothPassage",
+    "unlockMorUlRek",
 })
 
 # Optional-column cell grammars — mirrors the loader's parseItems /

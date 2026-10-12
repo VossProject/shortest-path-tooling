@@ -243,6 +243,7 @@ public final class DashboardScenarioRunner {
                 case "unlockCanoeAxe": config.setUnlockCanoeAxe(parseBoolean(value)); break;
                 case "unlockXericsHonour": config.setUnlockXericsHonour(parseBoolean(value)); break;
                 case "unlockDragontoothPassage": config.setUnlockDragontoothPassage(parseBoolean(value)); break;
+                case "unlockMorUlRek": config.setUnlockMorUlRek(parseBoolean(value)); break;
                 case "costNonConsumableTeleportationItems": config.setCostNonConsumableTeleportationItems(Integer.parseInt(value)); break;
                 case "costAgilityShortcuts": config.setCostAgilityShortcuts(Integer.parseInt(value)); break;
                 case "costGrappleShortcuts": config.setCostGrappleShortcuts(Integer.parseInt(value)); break;
