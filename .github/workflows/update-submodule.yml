@@ -5,15 +5,20 @@ on:
     - cron: "0 6 * * *" # daily at 06:00 UTC
   workflow_dispatch:
 
+concurrency:
+  group: update-submodule
+  cancel-in-progress: false
+
 jobs:
   update:
     name: Update shortest-path submodule
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
