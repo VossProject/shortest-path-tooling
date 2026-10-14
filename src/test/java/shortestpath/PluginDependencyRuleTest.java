@@ -343,11 +343,24 @@ public class PluginDependencyRuleTest
 
 	/**
 	 * Injection marker for the mutable-field scan: a
-	 * {@code public} field whose declaration line or immediately
-	 * preceding non-blank line carries {@code @Inject} is exempt —
-	 * RuneLite's injector owns those references.
+	 * {@code public} field whose own declaration line carries
+	 * {@code @Inject} (e.g. {@code public @Inject Foo f;}) is
+	 * exempt — RuneLite's injector owns those references.
 	 */
 	private static final Pattern INJECT_ANNOTATION = Pattern.compile("@Inject\\b");
+
+	/**
+	 * A line that is only an {@code @Inject} annotation —
+	 * optionally with arguments — and nothing else. Only this
+	 * standalone form exempts the field declared on the next
+	 * non-blank line: a previous line that merely contains
+	 * {@code @Inject} (e.g. a compact same-line injected member
+	 * such as {@code @Inject private Foo a;}) annotates a
+	 * different member and must not bleed its exemption onto the
+	 * following declaration.
+	 */
+	private static final Pattern INJECT_ONLY_LINE =
+		Pattern.compile("^\\s*@Inject(?:\\([^)]*\\))?\\s*$");
 
 	/**
 	 * Named exceptions for {@link #leafToPluginTypeReferences()} —
@@ -669,9 +682,11 @@ public class PluginDependencyRuleTest
 	 * multi-declarator forms — on comment-stripped lines and return
 	 * the sorted set of {@code path:line} keys. {@code public
 	 * static} / {@code public final} cannot match, and a declaration
-	 * carrying {@code @Inject} on its own or the immediately
-	 * preceding non-blank line is exempt — RuneLite's injector owns
-	 * those references.
+	 * carrying {@code @Inject} on its own line or directly under a
+	 * standalone {@code @Inject} annotation line is exempt —
+	 * RuneLite's injector owns those references. An
+	 * {@code @Inject} that decorates a different member on the
+	 * previous line does not bleed the exemption across.
 	 */
 	static SortedSet<String> observedPublicMutableFields(Path mainRoot) throws IOException
 	{
@@ -690,7 +705,7 @@ public class PluginDependencyRuleTest
 					String code = stripComments(lines.get(i), inBlock);
 					if (PUBLIC_FIELD.matcher(code).find()
 						&& !INJECT_ANNOTATION.matcher(code).find()
-						&& !INJECT_ANNOTATION.matcher(previous).find())
+						&& !INJECT_ONLY_LINE.matcher(previous).find())
 					{
 						sites.add(rel + ":" + (i + 1));
 					}
@@ -1112,12 +1127,18 @@ public class PluginDependencyRuleTest
 			"class InjectedProbeTmp {",
 			"    @Inject",
 			"    public Object injected;",
+			"    public @Inject Object sameLine;",
+			"    @Inject private Object helper;",
+			"    public Object leaked;",
 			"}"));
 
 		SortedSet<String> observed = observedPublicMutableFields(fixture);
 		assertEquals("the bare, column-0, modifier-bearing, annotated, and "
 				+ "multi-declarator public instance fields must flag — "
-				+ "static/final, comments, and private fields must not: " + observed,
+				+ "static/final, comments, private fields, and fields whose own "
+				+ "declaration or preceding standalone line is @Inject must not; "
+				+ "an @Inject on a different member's line must not bleed over: "
+				+ observed,
 			new TreeSet<>(Arrays.asList(
 				"shortestpath/items/MutableProbeTmp.java:2",
 				"shortestpath/items/MutableProbeTmp.java:3",
@@ -1125,7 +1146,8 @@ public class PluginDependencyRuleTest
 				"shortestpath/items/MutableProbeTmp.java:5",
 				"shortestpath/items/MutableProbeTmp.java:6",
 				"shortestpath/items/MutableProbeTmp.java:7",
-				"shortestpath/items/MutableProbeTmp.java:8")),
+				"shortestpath/items/MutableProbeTmp.java:8",
+				"shortestpath/items/InjectedProbeTmp.java:6")),
 			observed);
 
 		SortedSet<String> unlisted = new TreeSet<>(observed);
