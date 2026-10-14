@@ -55,13 +55,14 @@ import static org.junit.Assert.*;
  * {@link #flagsUnlistedCoupling()} can prove both failure branches against
  * temporary fixture roots — the submodule tree is never written to.
  *
- * <p>Known gaps, by design. The scan token is the dotted form
- * {@code ShortestPathPlugin.}, so instance coupling — a leaf class that
- * accepts an injected {@code ShortestPathPlugin} and calls it through a
- * field, as several overlay classes do today — is not counted. Those sites
- * are documented in the architectural survey and migrate with their owning
- * extractions; widening the token set is a future enhancement, not a
- * silent rule change. The last allowlist entry retired with the resource
+ * <p>Known gaps, by design. The original scan token is the dotted form
+ * {@code ShortestPathPlugin.} — static coupling only, and a raw substring
+ * at that. Instance coupling is now covered separately by
+ * {@link #leafToPluginTypeReferences()}, which sees imports, parameter
+ * types, and {@code plugin.} reads on comment-stripped lines; its
+ * {@link #TYPE_REFERENCE_EXCEPTIONS} table holds the one adjudicated
+ * residual ({@code DebugOverlayPanel}'s {@code super(plugin)} seam).
+ * The last allowlist entry retired with the resource
  * anchors' migration to the self-anchored loader, so the formerly
  * vacuous-guard assertion in {@link #scanHasReach()} was relaxed in the
  * same change; the freeze mechanism stays — any new
@@ -301,6 +302,84 @@ public class PluginDependencyRuleTest
 	}
 
 	/**
+	 * Word-boundary token for the plugin class name — catches import
+	 * lines, parameter/field types, {@code ShortestPathPlugin.class},
+	 * and static accesses alike. Applied to comment-stripped lines so
+	 * javadoc design notes do not count as coupling sites.
+	 */
+	private static final Pattern PLUGIN_TYPE_TOKEN =
+		Pattern.compile("\\bShortestPathPlugin\\b");
+
+	/**
+	 * Word-boundary token for instance reads through a {@code plugin}
+	 * field or parameter ({@code plugin.foo(...)},
+	 * {@code plugin.foo = ...}) — the instance-coupling half of the
+	 * type-reference scan. Also on comment-stripped lines.
+	 */
+	private static final Pattern PLUGIN_READ_TOKEN =
+		Pattern.compile("\\bplugin\\.");
+
+	/**
+	 * Field-declaration shape for the public-mutable-field scan:
+	 * {@code public <type> <name> [=|;]}. {@code public static} and
+	 * {@code public final} declarations cannot match — the modifier
+	 * word occupies the type slot and the real type name then fails
+	 * the {@code [=;]} tail — so no explicit modifier exclusion is
+	 * needed. Package-private seams and accessor-mediated mutation
+	 * are outside this grammar by design (a recorded coverage limit).
+	 */
+	private static final Pattern PUBLIC_FIELD =
+		Pattern.compile("^\\s+public\\s+[A-Za-z0-9_<>,.\\[\\]]+\\s+[a-zA-Z_]+\\s*[=;]");
+
+	/**
+	 * Injection marker for the mutable-field scan: a
+	 * {@code public} field whose declaration line or immediately
+	 * preceding non-blank line carries {@code @Inject} is exempt —
+	 * RuneLite's injector owns those references.
+	 */
+	private static final Pattern INJECT_ANNOTATION = Pattern.compile("@Inject\\b");
+
+	/**
+	 * Named exceptions for {@link #leafToPluginTypeReferences()} —
+	 * {@code path:line} keys, each naming the adjudicated reason the
+	 * site survives. Removing a seam without removing its entry fails
+	 * the scan on the stale-entry arm, so the table cannot silently
+	 * outlive the code it covers.
+	 */
+	private static final Map<String, String> TYPE_REFERENCE_EXCEPTIONS = new TreeMap<>();
+
+	/**
+	 * Approved sites for {@link #subpackageToPluginStaticCoupling()} —
+	 * {@code path:line} keys. Empty today: no subpackage may reach the
+	 * plugin class statically.
+	 */
+	private static final Map<String, String> SUBPACKAGE_STATIC_EXCEPTIONS = new TreeMap<>();
+
+	/**
+	 * Approved sites for {@link #publicMutableFieldSeams()} —
+	 * {@code path:line} keys. Empty today: leaf packages expose no
+	 * public mutable state.
+	 */
+	private static final Map<String, String> MUTABLE_FIELD_EXCEPTIONS = new TreeMap<>();
+
+	static
+	{
+		// DebugOverlayPanel's ctor seam — the milestone's one named
+		// residual. RuneLite's OverlayPanel base class requires the
+		// plugin instance, so the panel keeps a ShortestPathPlugin
+		// parameter purely to forward to super(plugin). Adjudicated a
+		// named exception: widening the parameter to
+		// net.runelite.client.plugins.Plugin is deferred to post-merge
+		// cleanup — the file is owned by mid-stack branches, so a fix
+		// now would re-diff their PRs and cascade re-verification of
+		// every descendant. Both lines below are that one seam.
+		TYPE_REFERENCE_EXCEPTIONS.put("shortestpath/overlay/DebugOverlayPanel.java:16",
+			"import for the OverlayPanel-required ctor parameter — widened post-merge, see the deferred-work register");
+		TYPE_REFERENCE_EXCEPTIONS.put("shortestpath/overlay/DebugOverlayPanel.java:35",
+			"ctor parameter forwarded to super(plugin) — OverlayPanel requires the Plugin instance");
+	}
+
+	/**
 	 * Scan the leaf packages under {@code mainRoot} (expected layout:
 	 * {@code <mainRoot>/shortestpath/<pkg>} plus nested subdirectories) and
 	 * return the sorted
@@ -387,6 +466,248 @@ public class PluginDependencyRuleTest
 			}
 		}
 		return edges;
+	}
+
+	/**
+	 * Strip comment text from {@code line}, updating {@code inBlock} —
+	 * the one-element block-comment carry state across lines. String
+	 * and char literals are preserved verbatim so {@code //} or
+	 * {@code /*} inside quotes cannot truncate the scan, and a token
+	 * inside a literal still counts as a site (same conservative
+	 * policy as {@link #observedSites(Path)}: a literal mentioning the
+	 * plugin counts until argued otherwise). Token scans mean "code
+	 * references", so javadoc and line comments must be invisible —
+	 * {@code overlay/ArrowHead}'s "port-tasks plugin." javadoc and
+	 * {@code pathfinder/sailing/BoatHull}'s {@code ShortestPathPlugin}
+	 * design comment are the motivating false positives.
+	 */
+	private static String stripComments(String line, boolean[] inBlock)
+	{
+		StringBuilder out = new StringBuilder(line.length());
+		boolean inString = false;
+		boolean inChar = false;
+		for (int i = 0; i < line.length(); i++)
+		{
+			char c = line.charAt(i);
+			if (inBlock[0])
+			{
+				if (c == '*' && i + 1 < line.length() && line.charAt(i + 1) == '/')
+				{
+					inBlock[0] = false;
+					i++;
+				}
+				continue;
+			}
+			if (inString || inChar)
+			{
+				out.append(c);
+				if (c == '\\' && i + 1 < line.length())
+				{
+					out.append(line.charAt(++i));
+				}
+				else if (inString && c == '"')
+				{
+					inString = false;
+				}
+				else if (inChar && c == '\'')
+				{
+					inChar = false;
+				}
+				continue;
+			}
+			if (c == '"')
+			{
+				inString = true;
+				out.append(c);
+				continue;
+			}
+			if (c == '\'')
+			{
+				inChar = true;
+				out.append(c);
+				continue;
+			}
+			if (c == '/' && i + 1 < line.length())
+			{
+				if (line.charAt(i + 1) == '/')
+				{
+					break;
+				}
+				if (line.charAt(i + 1) == '*')
+				{
+					inBlock[0] = true;
+					i++;
+					continue;
+				}
+			}
+			out.append(c);
+		}
+		return out.toString();
+	}
+
+	/**
+	 * All {@code .java} files under {@code dir} (recursive), or none
+	 * when the directory does not exist — the walk shared by the
+	 * token-scan variants.
+	 */
+	private static List<Path> javaSources(Path dir) throws IOException
+	{
+		if (!Files.isDirectory(dir))
+		{
+			return Collections.emptyList();
+		}
+		try (Stream<Path> stream = Files.walk(dir))
+		{
+			return stream
+				.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".java"))
+				.collect(Collectors.toList());
+		}
+	}
+
+	/**
+	 * {@code path:line}-style path key for a source file —
+	 * {@code mainRoot}-relative with {@code /} separators.
+	 */
+	private static String relKey(Path mainRoot, Path source)
+	{
+		return mainRoot.relativize(source).toString().replace(File.separatorChar, '/');
+	}
+
+	/**
+	 * Scan the leaf packages for {@code ShortestPathPlugin} type
+	 * references — imports, parameter/field types,
+	 * {@code .class} literals, static accesses — and for
+	 * {@code plugin.} instance reads, on comment-stripped lines, and
+	 * return the sorted set of {@code path:line} keys. This is the
+	 * scan that sees the instance-coupling residual the dotted-token
+	 * {@link #observedSites(Path)} scan deliberately does not count.
+	 */
+	static SortedSet<String> observedTypeReferences(Path mainRoot) throws IOException
+	{
+		SortedSet<String> sites = new TreeSet<>();
+		Path base = mainRoot.resolve("shortestpath");
+		for (String pkg : LEAF_PACKAGES)
+		{
+			for (Path source : javaSources(base.resolve(pkg)))
+			{
+				String rel = relKey(mainRoot, source);
+				List<String> lines = Files.readAllLines(source);
+				boolean[] inBlock = {false};
+				for (int i = 0; i < lines.size(); i++)
+				{
+					String code = stripComments(lines.get(i), inBlock);
+					if (PLUGIN_TYPE_TOKEN.matcher(code).find()
+						|| PLUGIN_READ_TOKEN.matcher(code).find())
+					{
+						sites.add(rel + ":" + (i + 1));
+					}
+				}
+			}
+		}
+		return sites;
+	}
+
+	/**
+	 * Scan <em>every</em> {@code .java} file in a subdirectory of
+	 * {@code mainRoot/shortestpath} — leaf packages and any
+	 * unclassified package alike — for {@code ShortestPathPlugin.}
+	 * static accesses on comment-stripped lines, and return the
+	 * sorted set of {@code path:line} keys. Root-package files are
+	 * excluded: shell classes legitimately reference the plugin
+	 * ({@code @ConfigGroup(ShortestPathPlugin.CONFIG_GROUP)},
+	 * self-references inside {@code ShortestPathPlugin} itself). An
+	 * unclassified new package cannot smuggle coupling past this
+	 * scan — the census fails on the package itself, and this scan
+	 * fails on the reference.
+	 */
+	static SortedSet<String> observedSubpackageStaticCoupling(Path mainRoot) throws IOException
+	{
+		SortedSet<String> sites = new TreeSet<>();
+		Path base = mainRoot.resolve("shortestpath");
+		if (!Files.isDirectory(base))
+		{
+			return sites;
+		}
+		List<Path> sources;
+		try (Stream<Path> stream = Files.walk(base))
+		{
+			sources = stream
+				.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".java"))
+				.filter(p -> !p.getParent().equals(base))
+				.collect(Collectors.toList());
+		}
+		for (Path source : sources)
+		{
+			String rel = relKey(mainRoot, source);
+			List<String> lines = Files.readAllLines(source);
+			boolean[] inBlock = {false};
+			for (int i = 0; i < lines.size(); i++)
+			{
+				if (stripComments(lines.get(i), inBlock).contains(PLUGIN_REFERENCE))
+				{
+					sites.add(rel + ":" + (i + 1));
+				}
+			}
+		}
+		return sites;
+	}
+
+	/**
+	 * Scan the leaf packages for {@code public <type> <name> [=|;]}
+	 * field declarations on comment-stripped lines and return the
+	 * sorted set of {@code path:line} keys. {@code public static} /
+	 * {@code public final} cannot match the two-word grammar, and a
+	 * declaration carrying {@code @Inject} on its own or the
+	 * immediately preceding non-blank line is exempt — RuneLite's
+	 * injector owns those references.
+	 */
+	static SortedSet<String> observedPublicMutableFields(Path mainRoot) throws IOException
+	{
+		SortedSet<String> sites = new TreeSet<>();
+		Path base = mainRoot.resolve("shortestpath");
+		for (String pkg : LEAF_PACKAGES)
+		{
+			for (Path source : javaSources(base.resolve(pkg)))
+			{
+				String rel = relKey(mainRoot, source);
+				List<String> lines = Files.readAllLines(source);
+				boolean[] inBlock = {false};
+				String previous = "";
+				for (int i = 0; i < lines.size(); i++)
+				{
+					String code = stripComments(lines.get(i), inBlock);
+					if (PUBLIC_FIELD.matcher(code).find()
+						&& !INJECT_ANNOTATION.matcher(code).find()
+						&& !INJECT_ANNOTATION.matcher(previous).find())
+					{
+						sites.add(rel + ":" + (i + 1));
+					}
+					if (!code.trim().isEmpty())
+					{
+						previous = code;
+					}
+				}
+			}
+		}
+		return sites;
+	}
+
+	/**
+	 * The set of package names directly under
+	 * {@code mainRoot/shortestpath} — directories only; the
+	 * root-package files ({@code ShortestPathPlugin},
+	 * {@code ShortestPathConfig}, the shared utilities) are not
+	 * packages and never count.
+	 */
+	static SortedSet<String> observedLeafPackages(Path mainRoot) throws IOException
+	{
+		Path base = mainRoot.resolve("shortestpath");
+		try (Stream<Path> stream = Files.list(base))
+		{
+			return stream.filter(Files::isDirectory)
+				.map(p -> p.getFileName().toString())
+				.collect(Collectors.toCollection(TreeSet::new));
+		}
 	}
 
 	@Test
@@ -536,5 +857,282 @@ public class PluginDependencyRuleTest
 		unlisted.removeAll(LEAF_EDGES.keySet());
 		assertEquals("the undocumented probe edge must land in the unlisted set",
 			Collections.singleton("leagues -> items"), unlisted);
+	}
+
+	/**
+	 * Leaf-package code must not reference the
+	 * {@code ShortestPathPlugin} type — imports, parameter/field
+	 * types, {@code .class} literals — and must not read through a
+	 * {@code plugin} field, beyond the adjudicated entries in
+	 * {@link #TYPE_REFERENCE_EXCEPTIONS}. This is the scan that sees
+	 * the instance coupling the dotted-token scan's known gap leaves
+	 * uncounted; comments and javadoc are stripped, so design notes
+	 * do not count as sites.
+	 */
+	@Test
+	public void leafToPluginTypeReferences() throws IOException
+	{
+		SortedSet<String> observed = observedTypeReferences(MAIN_ROOT);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(TYPE_REFERENCE_EXCEPTIONS.keySet());
+
+		SortedSet<String> stale = new TreeSet<>(TYPE_REFERENCE_EXCEPTIONS.keySet());
+		stale.removeAll(observed);
+
+		StringBuilder message = new StringBuilder();
+		if (!unlisted.isEmpty())
+		{
+			message.append("new leaf-package reference to ShortestPathPlugin (type ")
+				.append("or plugin. read) is not an adjudicated exception — route ")
+				.append("through an owned service or injected seam instead: ")
+				.append(unlisted).append(' ');
+		}
+		if (!stale.isEmpty())
+		{
+			message.append("exception entries with no matching reference site — ")
+				.append("remove the entry in the change that removed the seam: ")
+				.append(stale);
+		}
+		assertTrue(message.toString(), unlisted.isEmpty() && stale.isEmpty());
+	}
+
+	/**
+	 * No subpackage — leaf or unclassified — may reach the plugin
+	 * class statically: {@code ShortestPathPlugin.} accesses outside
+	 * the root package must all be approved in
+	 * {@link #SUBPACKAGE_STATIC_EXCEPTIONS}.
+	 */
+	@Test
+	public void subpackageToPluginStaticCoupling() throws IOException
+	{
+		SortedSet<String> observed = observedSubpackageStaticCoupling(MAIN_ROOT);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(SUBPACKAGE_STATIC_EXCEPTIONS.keySet());
+
+		SortedSet<String> stale = new TreeSet<>(SUBPACKAGE_STATIC_EXCEPTIONS.keySet());
+		stale.removeAll(observed);
+
+		StringBuilder message = new StringBuilder();
+		if (!unlisted.isEmpty())
+		{
+			message.append("new subpackage static coupling to ShortestPathPlugin ")
+				.append("is not approved — route through an owned service or ")
+				.append("injected seam instead: ").append(unlisted).append(' ');
+		}
+		if (!stale.isEmpty())
+		{
+			message.append("stale exception entries with no matching static-access ")
+				.append("site — remove the entry in the change that removed the ")
+				.append("reference: ").append(stale);
+		}
+		assertTrue(message.toString(), unlisted.isEmpty() && stale.isEmpty());
+	}
+
+	/**
+	 * Leaf packages expose no public mutable state:
+	 * {@code public <type> <name> [=|;]} declarations fail unless
+	 * approved in {@link #MUTABLE_FIELD_EXCEPTIONS} or injected
+	 * ({@code @Inject}) — the mutable-field arm of the no-seams
+	 * invariant.
+	 */
+	@Test
+	public void publicMutableFieldSeams() throws IOException
+	{
+		SortedSet<String> observed = observedPublicMutableFields(MAIN_ROOT);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(MUTABLE_FIELD_EXCEPTIONS.keySet());
+
+		SortedSet<String> stale = new TreeSet<>(MUTABLE_FIELD_EXCEPTIONS.keySet());
+		stale.removeAll(observed);
+
+		StringBuilder message = new StringBuilder();
+		if (!unlisted.isEmpty())
+		{
+			message.append("new public mutable field in a leaf package is not ")
+				.append("approved — leaf state is injected or package-private, ")
+				.append("never publicly mutable: ").append(unlisted).append(' ');
+		}
+		if (!stale.isEmpty())
+		{
+			message.append("stale exception entries with no matching field site — ")
+				.append("remove the entry in the change that removed the field: ")
+				.append(stale);
+		}
+		assertTrue(message.toString(), unlisted.isEmpty() && stale.isEmpty());
+	}
+
+	/**
+	 * The leaf package set is closed: the directories under
+	 * {@code shortestpath/} must equal {@link #LEAF_PACKAGES} exactly.
+	 * A new unclassified package fails here before any of the scans
+	 * can silently ignore it, and a removed package fails until its
+	 * enumeration is retired in the same change.
+	 */
+	@Test
+	public void leafPackageCensus() throws IOException
+	{
+		SortedSet<String> observed = observedLeafPackages(MAIN_ROOT);
+
+		SortedSet<String> unclassified = new TreeSet<>(observed);
+		unclassified.removeAll(LEAF_PACKAGES);
+
+		SortedSet<String> missing = new TreeSet<>(LEAF_PACKAGES);
+		missing.removeAll(observed);
+
+		StringBuilder message = new StringBuilder();
+		if (!unclassified.isEmpty())
+		{
+			message.append("new shortestpath/* package is not classified — add it ")
+				.append("to LEAF_PACKAGES with its seams documented, or remove it: ")
+				.append(unclassified).append(' ');
+		}
+		if (!missing.isEmpty())
+		{
+			message.append("declared leaf package has no directory on disk — ")
+				.append("retire it from LEAF_PACKAGES in the same change: ")
+				.append(missing);
+		}
+		assertTrue(message.toString(), unclassified.isEmpty() && missing.isEmpty());
+	}
+
+	/**
+	 * Red-direction proof for {@link #observedTypeReferences(Path)}:
+	 * an import, a parameter type, and a {@code plugin.} read must all
+	 * flag; the same tokens inside javadoc and line comments must not.
+	 */
+	@Test
+	public void flagsUnlistedTypeReference() throws IOException
+	{
+		Path fixture = Files.createTempDirectory("dep-rule-typeref");
+		Path dir = fixture.resolve("shortestpath").resolve("transport");
+		Files.createDirectories(dir);
+		Files.write(dir.resolve("TypeRefProbeTmp.java"), Arrays.asList(
+			"import shortestpath.ShortestPathPlugin;",
+			"/**",
+			" * Javadoc mentioning plugin. and ShortestPathPlugin must not count.",
+			" */",
+			"// a line comment mentioning plugin. and ShortestPathPlugin must not count.",
+			"class TypeRefProbeTmp {",
+			"    TypeRefProbeTmp(ShortestPathPlugin plugin) { }",
+			"    Object read(Object plugin) { return plugin.getName(); }",
+			"}"));
+
+		SortedSet<String> observed = observedTypeReferences(fixture);
+		assertEquals("import, parameter type, and plugin. read must flag — comments must not",
+			new TreeSet<>(Arrays.asList(
+				"shortestpath/transport/TypeRefProbeTmp.java:1",
+				"shortestpath/transport/TypeRefProbeTmp.java:7",
+				"shortestpath/transport/TypeRefProbeTmp.java:8")),
+			observed);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(TYPE_REFERENCE_EXCEPTIONS.keySet());
+		assertEquals("the probe sites must land in the unlisted set",
+			new TreeSet<>(observed), unlisted);
+	}
+
+	/**
+	 * Red-direction proof for {@link #observedSubpackageStaticCoupling(Path)}:
+	 * a {@code ShortestPathPlugin.} access in a package not even in
+	 * {@link #LEAF_PACKAGES} must flag — leaf coverage alone would
+	 * never see it — while the same access in a root-package file and
+	 * in a comment must not.
+	 */
+	@Test
+	public void flagsUnlistedStaticCoupling() throws IOException
+	{
+		Path fixture = Files.createTempDirectory("dep-rule-static");
+		Path dir = fixture.resolve("shortestpath").resolve("unclassified");
+		Files.createDirectories(dir);
+		Files.write(dir.resolve("StaticProbeTmp.java"), Arrays.asList(
+			"package shortestpath.unclassified;",
+			"class StaticProbeTmp { String s = ShortestPathPlugin.CONFIG_GROUP; }",
+			"// ShortestPathPlugin.CONFIG_GROUP in a comment does not count."));
+		Files.write(fixture.resolve("shortestpath").resolve("RootShell.java"),
+			Collections.singletonList(
+				"class RootShell { String s = ShortestPathPlugin.CONFIG_GROUP; }"));
+
+		SortedSet<String> observed = observedSubpackageStaticCoupling(fixture);
+		assertEquals("the unclassified-package static access must be the only site "
+				+ "(root-package files and comments excluded): " + observed,
+			Collections.singleton("shortestpath/unclassified/StaticProbeTmp.java:2"),
+			observed);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(SUBPACKAGE_STATIC_EXCEPTIONS.keySet());
+		assertEquals("the probe site must land in the unlisted set",
+			new TreeSet<>(observed), unlisted);
+	}
+
+	/**
+	 * Red-direction proof for {@link #observedPublicMutableFields(Path)}:
+	 * {@code public} instance fields must flag, while
+	 * {@code public static}/{@code public final} declarations,
+	 * comment text, private fields, and {@code @Inject} fields must not.
+	 */
+	@Test
+	public void flagsMutableField() throws IOException
+	{
+		Path fixture = Files.createTempDirectory("dep-rule-mutable");
+		Path dir = fixture.resolve("shortestpath").resolve("items");
+		Files.createDirectories(dir);
+		Files.write(dir.resolve("MutableProbeTmp.java"), Arrays.asList(
+			"class MutableProbeTmp {",
+			"    public int counter = 0;",
+			"    public String name;",
+			"    public static int shared;",
+			"    public final String id = \"x\";",
+			"    public static final long MAX = 5;",
+			"    /* public int hiddenInComment = 1; */",
+			"    private int closed = 2;",
+			"}"));
+		Files.write(dir.resolve("InjectedProbeTmp.java"), Arrays.asList(
+			"class InjectedProbeTmp {",
+			"    @Inject",
+			"    public Object injected;",
+			"}"));
+
+		SortedSet<String> observed = observedPublicMutableFields(fixture);
+		assertEquals("only the two public instance fields must flag: " + observed,
+			new TreeSet<>(Arrays.asList(
+				"shortestpath/items/MutableProbeTmp.java:2",
+				"shortestpath/items/MutableProbeTmp.java:3")),
+			observed);
+
+		SortedSet<String> unlisted = new TreeSet<>(observed);
+		unlisted.removeAll(MUTABLE_FIELD_EXCEPTIONS.keySet());
+		assertEquals("the probe sites must land in the unlisted set",
+			new TreeSet<>(observed), unlisted);
+	}
+
+	/**
+	 * Red-direction proof for {@link #observedLeafPackages(Path)}: a
+	 * package directory outside {@link #LEAF_PACKAGES} must be
+	 * observed, and a declared leaf with no directory must surface as
+	 * missing.
+	 */
+	@Test
+	public void flagsLeafPackageDrift() throws IOException
+	{
+		Path fixture = Files.createTempDirectory("dep-rule-census");
+		Files.createDirectories(fixture.resolve("shortestpath").resolve("transport"));
+		Files.createDirectories(fixture.resolve("shortestpath").resolve("newpkg"));
+
+		SortedSet<String> observed = observedLeafPackages(fixture);
+		assertTrue("an unclassified package must be observed: " + observed,
+			observed.contains("newpkg"));
+
+		SortedSet<String> unclassified = new TreeSet<>(observed);
+		unclassified.removeAll(LEAF_PACKAGES);
+		assertEquals("the drift arm must isolate the new package",
+			Collections.singleton("newpkg"), unclassified);
+
+		SortedSet<String> missing = new TreeSet<>(LEAF_PACKAGES);
+		missing.removeAll(observed);
+		assertTrue("every declared leaf absent from the fixture must surface as missing",
+			missing.contains("items") && missing.contains("pathfinder"));
 	}
 }
