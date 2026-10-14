@@ -130,38 +130,38 @@ public class BenchmarkMainTest {
     }
 
     @Test
-    public void acceptsExactProjectWithExactAlgorithm() throws Exception {
+    public void acceptsAStarProjectWithAStarAlgorithm() throws Exception {
         Path manifest = manifest(firstRoute().getId(), "early", 1, 100000000L);
         JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-        json.addProperty("project", "shortest-path-exact");
+        json.addProperty("project", "shortest-path-astar");
         json.getAsJsonObject("policy").getAsJsonObject("adapter_args")
-            .addProperty("algorithm", "exact");
+            .addProperty("algorithm", "astar");
         Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
         BenchmarkMain.Plan plan = BenchmarkMain.loadPlan(manifest);
-        Assert.assertEquals("shortest-path-exact", plan.project);
-        Assert.assertEquals("exact", plan.algorithm);
+        Assert.assertEquals("shortest-path-astar", plan.project);
+        Assert.assertEquals("astar", plan.algorithm);
     }
 
     @Test
-    public void exactSessionDefaultsToColdAndIsValidated() throws Exception {
-        Assert.assertEquals(ScenarioRunner.ExactSession.COLD, BenchmarkMain.loadPlan(exactManifest(null, false)).exactSession);
-        Assert.assertEquals(ScenarioRunner.ExactSession.ACCOUNT, BenchmarkMain.loadPlan(exactManifest("account", false)).exactSession);
-        Assert.assertEquals(ScenarioRunner.ExactSession.TARGET, BenchmarkMain.loadPlan(exactManifest("target", false)).exactSession);
-        expectFailure(exactManifest("warm", false));
+    public void aStarSessionDefaultsToColdAndIsValidated() throws Exception {
+        Assert.assertEquals(ScenarioRunner.AStarSession.COLD, BenchmarkMain.loadPlan(aStarManifest(null, false)).aStarSession);
+        Assert.assertEquals(ScenarioRunner.AStarSession.ACCOUNT, BenchmarkMain.loadPlan(aStarManifest("account", false)).aStarSession);
+        Assert.assertEquals(ScenarioRunner.AStarSession.TARGET, BenchmarkMain.loadPlan(aStarManifest("target", false)).aStarSession);
+        expectFailure(aStarManifest("warm", false));
         Path legacy = manifest(firstRoute().getId(), "early", 1, 100000000L);
         JsonObject json = JsonParser.parseString(Files.readString(legacy)).getAsJsonObject();
-        json.getAsJsonObject("policy").getAsJsonObject("adapter_args").addProperty("exact_session", "target");
+        json.getAsJsonObject("policy").getAsJsonObject("adapter_args").addProperty("astar_session", "target");
         Files.writeString(legacy, new Gson().toJson(json), StandardCharsets.UTF_8);
         expectFailure(legacy);
     }
 
     @Test
-    public void exactSessionModesPrepareWhatTheyDescribeWithAndWithoutWarmup() throws Exception {
+    public void aStarSessionModesPrepareWhatTheyDescribeWithAndWithoutWarmup() throws Exception {
         for (boolean warmup : new boolean[] {false, true}) {
             String label = warmup ? "with warmup" : "without warmup";
-            JsonObject cold = onlyObservation(exactManifest("cold", warmup));
-            JsonObject account = onlyObservation(exactManifest("account", warmup));
-            JsonObject target = onlyObservation(exactManifest("target", warmup));
+            JsonObject cold = onlyObservation(aStarManifest("cold", warmup));
+            JsonObject account = onlyObservation(aStarManifest("account", warmup));
+            JsonObject target = onlyObservation(aStarManifest("target", warmup));
 
             assertStages(label + ", cold", cold, false, false);
             assertStages(label + ", account", account, true, false);
@@ -174,7 +174,7 @@ public class BenchmarkMainTest {
 
     /** Sessions stay per account and per target across a run with several of each. */
     @Test
-    public void exactSessionModesHoldAcrossTargetsAndAccounts() throws Exception {
+    public void aStarSessionModesHoldAcrossTargetsAndAccounts() throws Exception {
         List<Route> routes = Route.load(CORPUS.resolve("corpus/routes-v1.json")).subList(0, 2);
         List<JsonObject> cases = new java.util.ArrayList<>();
         for (Route route : routes) {
@@ -186,10 +186,10 @@ public class BenchmarkMainTest {
         for (String session : List.of("cold", "account", "target")) {
             Path manifest = writeManifest(cases, 1, false, 100000000L, true);
             JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-            json.addProperty("project", "shortest-path-exact");
+            json.addProperty("project", "shortest-path-astar");
             JsonObject adapterArgs = json.getAsJsonObject("policy").getAsJsonObject("adapter_args");
-            adapterArgs.addProperty("algorithm", "exact");
-            adapterArgs.addProperty("exact_session", session);
+            adapterArgs.addProperty("algorithm", "astar");
+            adapterArgs.addProperty("astar_session", session);
             Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
             for (JsonObject observation : observations(manifest)) {
                 String key = observation.get("route_id").getAsString() + "/"
@@ -280,16 +280,16 @@ public class BenchmarkMainTest {
             + WorldPointUtil.unpackWorldPlane(packed) + "]";
     }
 
-    private static Path exactManifest(String session, boolean warmup) throws Exception {
+    private static Path aStarManifest(String session, boolean warmup) throws Exception {
         Route route = firstRoute();
         Path manifest = writeManifest(List.of(caseJson(route, "early", 0, expectedReachable(route, "early"))),
             1, warmup, 100000000L, true);
         JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-        json.addProperty("project", "shortest-path-exact");
+        json.addProperty("project", "shortest-path-astar");
         JsonObject adapterArgs = json.getAsJsonObject("policy").getAsJsonObject("adapter_args");
-        adapterArgs.addProperty("algorithm", "exact");
+        adapterArgs.addProperty("algorithm", "astar");
         if (session != null) {
-            adapterArgs.addProperty("exact_session", session);
+            adapterArgs.addProperty("astar_session", session);
         }
         Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
         return manifest;

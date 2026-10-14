@@ -18,9 +18,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import shortestpath.pathfinder.ExactPathfinder;
+import shortestpath.pathfinder.AStarPathfinder;
 import shortestpath.pathfinder.PathfinderResult;
-import shortestpath.pathfinder.exact.ExactForwardSearch;
+import shortestpath.pathfinder.astar.AStarForwardSearch;
 import shortestpath.profiles.CompiledAccount;
 import shortestpath.profiles.Profiles;
 import shortestpath.profiles.Setup;
@@ -59,7 +59,7 @@ public final class BenchmarkMain {
             throw new IllegalArgumentException("BENCHMARK_RUN_ID is required");
         }
 
-        ScenarioRunner runner = new ScenarioRunner(plan.backend, plan.exactSession);
+        ScenarioRunner runner = new ScenarioRunner(plan.backend, plan.aStarSession);
         runner.prepare();
         long routingStaticBuildNanos = runner.getRoutingStaticBuildNanos();
         Map<String, CompiledAccount> accounts = new HashMap<>();
@@ -158,7 +158,7 @@ public final class BenchmarkMain {
             Files.readString(manifestPath, StandardCharsets.UTF_8)).getAsJsonObject();
         requireInt(manifest, "format_version", FORMAT_VERSION);
         String project = requireString(manifest, "project");
-        if (!project.equals("shortest-path") && !project.equals("shortest-path-exact")) {
+        if (!project.equals("shortest-path") && !project.equals("shortest-path-astar")) {
             throw new IllegalArgumentException("unsupported Java benchmark project: " + project);
         }
         JsonObject policy = requiredObject(manifest, "policy");
@@ -168,20 +168,20 @@ public final class BenchmarkMain {
         JsonObject adapterArgs = requiredObject(policy, "adapter_args");
         boolean diagnostic = false;
         ScenarioRunner.Backend backend = ScenarioRunner.Backend.LEGACY;
-        ScenarioRunner.ExactSession exactSession = ScenarioRunner.ExactSession.COLD;
+        ScenarioRunner.AStarSession aStarSession = ScenarioRunner.AStarSession.COLD;
         for (String key : adapterArgs.keySet()) {
             if (key.equals("diagnostic")) diagnostic = requireBoolean(adapterArgs, key);
             else if (key.equals("algorithm")) backend = ScenarioRunner.Backend.parse(requireString(adapterArgs, key));
-            else if (key.equals("exact_session")) {
-                exactSession = ScenarioRunner.ExactSession.parse(requireString(adapterArgs, key));
+            else if (key.equals("astar_session")) {
+                aStarSession = ScenarioRunner.AStarSession.parse(requireString(adapterArgs, key));
             } else throw new IllegalArgumentException("unsupported Java adapter argument: " + key);
         }
-        boolean exact = backend == ScenarioRunner.Backend.EXACT;
-        if (project.equals("shortest-path-exact") != exact) {
+        boolean aStar = backend == ScenarioRunner.Backend.ASTAR;
+        if (project.equals("shortest-path-astar") != aStar) {
             throw new IllegalArgumentException("benchmark project and algorithm disagree");
         }
-        if (!exact && exactSession != ScenarioRunner.ExactSession.COLD) {
-            throw new IllegalArgumentException("exact_session requires the exact algorithm");
+        if (!aStar && aStarSession != ScenarioRunner.AStarSession.COLD) {
+            throw new IllegalArgumentException("astar_session requires the astar algorithm");
         }
 
         Map<String, Route> routes = new LinkedHashMap<>();
@@ -244,7 +244,7 @@ public final class BenchmarkMain {
             }
         }
         return new Plan(project, cases, logicalCases, repetitions, warmup, syntheticTime, diagnostic,
-            backend, exactSession);
+            backend, aStarSession);
     }
 
     private static JsonObject executionMetadata(Plan plan, long routingStaticBuildNanos) {
@@ -269,8 +269,8 @@ public final class BenchmarkMain {
         JsonObject adapterArgs = new JsonObject();
         adapterArgs.addProperty("diagnostic", plan.diagnostic);
         adapterArgs.addProperty("algorithm", plan.algorithm);
-        if (plan.backend == ScenarioRunner.Backend.EXACT) {
-            adapterArgs.addProperty("exact_session", plan.exactSession.id());
+        if (plan.backend == ScenarioRunner.Backend.ASTAR) {
+            adapterArgs.addProperty("astar_session", plan.aStarSession.id());
         }
         metadata.add("adapter_args", adapterArgs);
         return metadata;
@@ -301,7 +301,7 @@ public final class BenchmarkMain {
                 return null;
             }
             PathfinderResult result = observation.getResult();
-            ExactPathfinder exact = observation.getExact();
+            AStarPathfinder aStar = observation.getAStar();
             boolean reachable = observation.isReached();
             Integer pathCost = observation.getCost();
             long total = observation.getTotalNanos();
@@ -311,23 +311,23 @@ public final class BenchmarkMain {
             row.addProperty("correctness", classify(current.expectedReachable, reachable));
             row.addProperty("total_ns", total);
             if (plan.diagnostic) {
-                row.addProperty("forward_search_ns", exact == null
-                    ? result.getElapsedNanos() : exact.getForwardSearchNanos());
+                row.addProperty("forward_search_ns", aStar == null
+                    ? result.getElapsedNanos() : aStar.getForwardSearchNanos());
                 row.addProperty("path_length", result.getPathSteps().size());
                 row.addProperty("states_popped", result.getNodesChecked());
                 row.addProperty("transports_checked", result.getTransportsChecked());
-                if (exact != null) {
-                    ExactForwardSearch.Counters counters = exact.getExactStats();
+                if (aStar != null) {
+                    AStarForwardSearch.Counters counters = aStar.getAStarStats();
                     row.addProperty("account_prepare_ns",
-                        exact.getAccountPrepareNanos() + exact.getGraphPrepareNanos());
-                    row.addProperty("graph_prepare_ns", exact.getGraphPrepareNanos());
-                    row.addProperty("reverse_search_ns", exact.getReverseSearchNanos());
-                    row.addProperty("seed_table_ns", exact.getHeuristicPrepareNanos());
+                        aStar.getAccountPrepareNanos() + aStar.getGraphPrepareNanos());
+                    row.addProperty("graph_prepare_ns", aStar.getGraphPrepareNanos());
+                    row.addProperty("reverse_search_ns", aStar.getReverseSearchNanos());
+                    row.addProperty("seed_table_ns", aStar.getHeuristicPrepareNanos());
                     row.addProperty("heuristic_prepare_ns",
-                        exact.getReverseSearchNanos() + exact.getHeuristicPrepareNanos());
-                    row.addProperty("exact_session", runner.getExactSession().id());
-                    row.addProperty("graph_reused", exact.isGraphReused());
-                    row.addProperty("target_reused", exact.isTargetReused());
+                        aStar.getReverseSearchNanos() + aStar.getHeuristicPrepareNanos());
+                    row.addProperty("astar_session", runner.getAStarSession().id());
+                    row.addProperty("graph_reused", aStar.isGraphReused());
+                    row.addProperty("target_reused", aStar.isTargetReused());
                     row.addProperty("unique_states_reached", counters.uniqueStatesReached());
                     row.addProperty("pq_pushes", counters.pqPushes());
                     row.addProperty("stale_entries", counters.staleEntries());
@@ -487,13 +487,13 @@ public final class BenchmarkMain {
         final long syntheticBenchmarkTime;
         final boolean diagnostic;
         final ScenarioRunner.Backend backend;
-        final ScenarioRunner.ExactSession exactSession;
-        /** The backend's manifest name: {@code legacy} or {@code exact}. */
+        final ScenarioRunner.AStarSession aStarSession;
+        /** The backend's manifest name: {@code legacy} or {@code astar}. */
         final String algorithm;
 
         Plan(String project, List<Case> cases, List<Case> logicalCases,
                 int repetitions, boolean warmup, long syntheticBenchmarkTime, boolean diagnostic,
-                ScenarioRunner.Backend backend, ScenarioRunner.ExactSession exactSession) {
+                ScenarioRunner.Backend backend, ScenarioRunner.AStarSession aStarSession) {
             this.project = project;
             this.cases = List.copyOf(cases);
             this.logicalCases = List.copyOf(logicalCases);
@@ -502,7 +502,7 @@ public final class BenchmarkMain {
             this.syntheticBenchmarkTime = syntheticBenchmarkTime;
             this.diagnostic = diagnostic;
             this.backend = backend;
-            this.exactSession = exactSession;
+            this.aStarSession = aStarSession;
             this.algorithm = backend.id();
         }
     }

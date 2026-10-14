@@ -52,7 +52,7 @@ cake. Every extraction copies the same rules:
 
 ## Dependency rule
 
-Declared rule, in the same register the exact backend's `package-info`
+Declared rule, in the same register the A* backend's `package-info`
 already uses:
 
 > Leaf packages — `transport/`, `pathfinder/`, `requirement/`, `leagues/`,
@@ -84,7 +84,7 @@ removal. Extraction work removes entries; entries are never added:
 | `transport/TransportTypeConfig.java:109` | `override()` read of a per-type config value | Settings service |
 | `transport/TransportTypeConfig.java:125` | `override()` read of a per-type config value | Settings service |
 | `pathfinder/PathfinderConfig.java:324` | `override()` read of `unreachableTargetDistanceThreshold` | Settings service |
-| `pathfinder/PathfinderConfig.java:327` | `override()` read of `exactHeuristicWeight` | Settings service |
+| `pathfinder/PathfinderConfig.java:327` | `override()` read of `aStarHeuristicWeight` | Settings service |
 | `pathfinder/PathfinderConfig.java:328` | `override()` read of `avoidWilderness` | Settings service |
 | `pathfinder/PathfinderConfig.java:329` | `override()` read of `usePoh` | Settings service |
 | `pathfinder/PathfinderConfig.java:335` | `override()` read of `usePohFairyRing` | Settings service |
@@ -187,7 +187,7 @@ flowchart TD
 
     subgraph Shell["Plugin shell - two god objects"]
         Plugin["ShortestPathPlugin - lifecycle ordering, item and varbit handlers, spirit-tree scrape, POH remap and isInsidePoh, scheduler internals, refresh triggers, plugin-message API, menu verbs, transport display, widget geometry, overlay registration"]
-        PFC["PathfinderConfig - cached config fields, override reads, item collection and banks, availableSpiritTrees, refresh orchestration, destinations and filtering, availability views, requirement wiring, exact account prep"]
+        PFC["PathfinderConfig - cached config fields, override reads, item collection and banks, availableSpiritTrees, refresh orchestration, destinations and filtering, availability views, requirement wiring, A* account prep"]
     end
 
     subgraph Req["Requirement middleware - landed"]
@@ -199,7 +199,7 @@ flowchart TD
 
     subgraph Engine["Engine - already coherent"]
         PF["Pathfinder search core"]
-        Exact["Exact backend"]
+        AStar["A* backend"]
     end
 
     subgraph Data["Leaf packages - data"]
@@ -231,7 +231,7 @@ flowchart TD
     TSV --> PFC
     Leagues --> Gates
     PFC -->|availability views| PF
-    PFC -->|account snapshot| Exact
+    PFC -->|account snapshot| AStar
     Plugin --> PathOv
     Plugin --> HighOv
     Plugin --> DbgOv
@@ -283,7 +283,7 @@ flowchart TD
         TSV["TSV data loading"]
         Leagues["Leagues"]
         PF["Pathfinder search core"]
-        Exact["Exact backend"]
+        AStar["A* backend"]
     end
 
     subgraph PresentT["Presentation"]
@@ -312,7 +312,7 @@ flowchart TD
     POH -->|POH facts changed| RCO
     RCO -->|sole caller - client to worker| Sched
     Sched -->|submit search| PF
-    Sched -->|submit search| Exact
+    Sched -->|submit search| AStar
     Sched -->|records outcomes| Diag
     RC --> Gates
     RP --> Gates
@@ -320,7 +320,7 @@ flowchart TD
     TSV -->|destinations and transports| Gates
     Leagues --> Gates
     Gates -->|availability views| PF
-    Gates -->|availability views| Exact
+    Gates -->|availability views| AStar
     Menu -->|verbs| Sched
     API -->|queries and restarts| Sched
     API -->|config payload| Cfg
@@ -338,7 +338,7 @@ flowchart TD
     classDef extracted fill:#dceeff,stroke:#2a62b0,color:#000
     classDef existing fill:#f2f2f2,stroke:#777,color:#000
     class Cfg,Items,POH,Geo,RCO,Sched,Diag,API,Menu,TPres,Skills extracted
-    class PSS,RC,RP,Gates,TSV,Leagues,PF,Exact,PathOv,HighOv,DbgOv,Panel,Util,ShellRes,Trees existing
+    class PSS,RC,RP,Gates,TSV,Leagues,PF,AStar,PathOv,HighOv,DbgOv,Panel,Util,ShellRes,Trees existing
 ```
 
 A combined both-states overview is deliberately omitted: compressing both

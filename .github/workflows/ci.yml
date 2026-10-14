@@ -54,7 +54,7 @@ jobs:
         shell: bash
 
       - name: Run a light benchmark through the adapter
-        # Runs benchmarkCanonical as shortest-path-benchmarks does (two cases, legacy and exact)
+        # Runs benchmarkCanonical as shortest-path-benchmarks does (two cases, legacy and A*)
         # and checks the output as the harness reads it, so we know the adapter still works for it.
         # If you change the adapter's arguments, manifest format or output, update
         # shortest-path-benchmarks to match (projects/shortest-path/run.sh, scripts/lib/benchlib.py,

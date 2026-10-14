@@ -5,16 +5,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import shortestpath.pathfinder.CollisionMap;
-import shortestpath.pathfinder.ExactPathfinder;
-import shortestpath.pathfinder.ExactRoutingStaticProvider;
+import shortestpath.pathfinder.AStarPathfinder;
+import shortestpath.pathfinder.AStarRoutingStaticProvider;
 import shortestpath.pathfinder.Pathfinder;
 import shortestpath.pathfinder.PathfinderConfig;
 import shortestpath.pathfinder.ProfilingPathfinder;
 import shortestpath.pathfinder.SplitFlagMap;
-import shortestpath.pathfinder.exact.ExactRoutingSession;
-import shortestpath.pathfinder.exact.PreparedRoutingAccount;
-import shortestpath.pathfinder.exact.RoutingStatic;
-import shortestpath.pathfinder.exact.SiteGraph;
+import shortestpath.pathfinder.astar.AStarRoutingSession;
+import shortestpath.pathfinder.astar.PreparedRoutingAccount;
+import shortestpath.pathfinder.astar.RoutingStatic;
+import shortestpath.pathfinder.astar.SiteGraph;
 import shortestpath.profiles.CompiledAccount;
 
 /**
@@ -22,18 +22,18 @@ import shortestpath.profiles.CompiledAccount;
  * benchmark adapter call a pathfinder, so they agree on what a run measures and what "reached"
  * means ({@link Observation#isReached()}).
  *
- * <p>Thread-safe: the exact backend's static routing data is built once and shared; sessions are
+ * <p>Thread-safe: the A* backend's static routing data is built once and shared; sessions are
  * keyed by account fingerprint.
  */
 public final class ScenarioRunner {
     public enum Backend {
-        LEGACY, EXACT;
+        LEGACY, ASTAR;
 
         public static Backend parse(String name) {
             try {
                 return valueOf(name.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("algorithm must be legacy or exact");
+                throw new IllegalArgumentException("algorithm must be legacy or astar");
             }
         }
 
@@ -43,10 +43,10 @@ public final class ScenarioRunner {
     }
 
     /**
-     * How much of the exact backend's preparation is done before the timed run. Static routing data is
+     * How much of the A* backend's preparation is done before the timed run. Static routing data is
      * always built first ({@link #prepare()}) and reported separately.
      */
-    public enum ExactSession {
+    public enum AStarSession {
         /** Nothing per account or per target before the run: every stage is prepared inside it. */
         COLD,
         /** The account's graph is prepared before the run; the target is prepared in it, as for a new destination. */
@@ -54,11 +54,11 @@ public final class ScenarioRunner {
         /** The account's graph and this target are both prepared before the run. */
         TARGET;
 
-        public static ExactSession parse(String name) {
+        public static AStarSession parse(String name) {
             try {
                 return valueOf(name.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("exact_session must be cold, account or target");
+                throw new IllegalArgumentException("astar_session must be cold, account or target");
             }
         }
 
@@ -71,33 +71,33 @@ public final class ScenarioRunner {
     public enum Profiling { OFF, ON, HEATMAP }
 
     private final Backend backend;
-    private final ExactSession exactSession;
-    private final Map<Long, ExactRoutingSession> sessions = new ConcurrentHashMap<>();
+    private final AStarSession aStarSession;
+    private final Map<Long, AStarRoutingSession> sessions = new ConcurrentHashMap<>();
     private volatile RoutingStatic routingStatic;
     private long routingStaticBuildNanos;
 
     public ScenarioRunner(Backend backend) {
-        this(backend, ExactSession.COLD);
+        this(backend, AStarSession.COLD);
     }
 
-    public ScenarioRunner(Backend backend, ExactSession exactSession) {
+    public ScenarioRunner(Backend backend, AStarSession aStarSession) {
         this.backend = backend;
-        this.exactSession = exactSession;
+        this.aStarSession = aStarSession;
     }
 
     public Backend getBackend() { return backend; }
-    public ExactSession getExactSession() { return exactSession; }
+    public AStarSession getAStarSession() { return aStarSession; }
 
-    /** Builds the exact backend's static routing data now rather than in the first run. */
+    /** Builds the A* backend's static routing data now rather than in the first run. */
     public synchronized void prepare() {
-        if (backend == Backend.EXACT && routingStatic == null) {
+        if (backend == Backend.ASTAR && routingStatic == null) {
             long started = System.nanoTime();
-            routingStatic = new ExactRoutingStaticProvider(() -> new CollisionMap(SplitFlagMap.fromResources())).get();
+            routingStatic = new AStarRoutingStaticProvider(() -> new CollisionMap(SplitFlagMap.fromResources())).get();
             routingStaticBuildNanos = System.nanoTime() - started;
         }
     }
 
-    /** How long building the exact static routing data took; 0 for legacy. */
+    /** How long building the A* static routing data took; 0 for legacy. */
     public long getRoutingStaticBuildNanos() {
         return routingStaticBuildNanos;
     }
@@ -132,10 +132,10 @@ public final class ScenarioRunner {
                 pathfinder.getProfile(), total);
         }
         prepare();
-        ExactRoutingSession session = session(config, scenario.getTarget());
+        AStarRoutingSession session = session(config, scenario.getTarget());
         long started = System.nanoTime();
-        ExactPathfinder pathfinder = new ExactPathfinder(config, routingStatic, session, start, targets, null,
-            config.getExactHeuristicWeight());
+        AStarPathfinder pathfinder = new AStarPathfinder(config, routingStatic, session, start, targets, null,
+            config.getAStarHeuristicWeight());
         pathfinder.run();
         long total = System.nanoTime() - started;
         return new Observation(scenario, backend, account, pathfinder.getResult(), pathfinder, null, total);
@@ -145,14 +145,14 @@ public final class ScenarioRunner {
      * The session the query runs with, in the state its mode describes, prepared before timing. Sessions
      * are per account fingerprint; each keeps its graph and a bounded cache of prepared targets.
      */
-    private ExactRoutingSession session(PathfinderConfig config, int target) {
-        if (exactSession == ExactSession.COLD) {
+    private AStarRoutingSession session(PathfinderConfig config, int target) {
+        if (aStarSession == AStarSession.COLD) {
             return null;
         }
-        PreparedRoutingAccount account = config.prepareExactRoutingAccount(true);
-        ExactRoutingSession session = sessions.computeIfAbsent(account.fingerprint(), ignored -> new ExactRoutingSession());
+        PreparedRoutingAccount account = config.prepareAStarRoutingAccount(true);
+        AStarRoutingSession session = sessions.computeIfAbsent(account.fingerprint(), ignored -> new AStarRoutingSession());
         SiteGraph graph = session.graph(routingStatic, account).value();
-        if (exactSession == ExactSession.ACCOUNT) {
+        if (aStarSession == AStarSession.ACCOUNT) {
             session.clearTargets();
         } else {
             session.target(graph, config.getMap(), target);

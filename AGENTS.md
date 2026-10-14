@@ -61,7 +61,7 @@ only for datasets of ≤ 200 scenarios; pass `true`/`false` to force),
 `dashboardHeatmap` (default true; only applies when profiling is on),
 `dashboardSeasonal`, `dashboardF2p`, `dashboardThreads` (parallel scenario
 workers; default `availableProcessors()-3`), `dashboardBackend` (`legacy`
-default or `exact`; exact runs are unprofiled). Other tasks: `captureExpectedLengths` (writes actual lengths
+default or `astar`; A* runs are unprofiled). Other tasks: `captureExpectedLengths` (writes actual lengths
 into `src/test/resources/scenarios/expected-lengths/<suite>.json`) and the cache dumpers/probes in `gradle/cache-dumpers.gradle`
 (`bankTileDump`, `sailingAmenityVarbitDump`, `leagueRegionDump`,
 `f2pRegionDump`, `leagueIdProbe`, `transportAnchorDrift`, the `briefcase*`
@@ -210,7 +210,7 @@ agent-facing, keep them stable):
 
 ```bash
 ./gradlew route -ProuteArgs="maxed 2411 4434 0 2995 3114 0 --json"   # any profile, incl. presets
-./gradlew route -ProuteArgs="gps-natural-0012 maxed --algorithm exact"
+./gradlew route -ProuteArgs="gps-natural-0012 maxed --algorithm astar"
 ./gradlew route -ProuteSuite=routing-issues -ProuteScenario="#140) usable"  # any suite scenario
 ./gradlew route -ProuteSuite=canonical -ProuteArgs=--list
 ```
