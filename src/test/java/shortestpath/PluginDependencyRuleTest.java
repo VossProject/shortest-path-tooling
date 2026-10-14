@@ -1,5 +1,6 @@
 package shortestpath;
 
+import org.junit.After;
 import org.junit.Test;
 
 import java.io.File;
@@ -7,8 +8,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -799,7 +802,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsUnlistedCoupling() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-probe");
+		Path fixture = newFixtureRoot("dep-rule-probe");
 		Path dir = fixture.resolve("shortestpath").resolve("transport");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("LintProbeTmp.java"), Collections.singletonList(
@@ -814,7 +817,7 @@ public class PluginDependencyRuleTest
 		assertEquals("the probe site must land in the unlisted-hit set",
 			Collections.singleton("shortestpath/transport/LintProbeTmp.java:1"), unlisted);
 
-		Path empty = Files.createTempDirectory("dep-rule-empty");
+		Path empty = newFixtureRoot("dep-rule-empty");
 		SortedSet<String> nothing = observedSites(empty);
 		assertTrue("an empty fixture root must observe no sites: " + nothing,
 			nothing.isEmpty());
@@ -867,7 +870,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsUnlistedEdge() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-edge");
+		Path fixture = newFixtureRoot("dep-rule-edge");
 		Path dir = fixture.resolve("shortestpath").resolve("leagues");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("EdgeProbeTmp.java"), Arrays.asList(
@@ -1033,7 +1036,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsUnlistedTypeReference() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-typeref");
+		Path fixture = newFixtureRoot("dep-rule-typeref");
 		Path dir = fixture.resolve("shortestpath").resolve("transport");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("TypeRefProbeTmp.java"), Arrays.asList(
@@ -1071,7 +1074,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsUnlistedStaticCoupling() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-static");
+		Path fixture = newFixtureRoot("dep-rule-static");
 		Path dir = fixture.resolve("shortestpath").resolve("unclassified");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("StaticProbeTmp.java"), Arrays.asList(
@@ -1105,7 +1108,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsMutableField() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-mutable");
+		Path fixture = newFixtureRoot("dep-rule-mutable");
 		Path dir = fixture.resolve("shortestpath").resolve("items");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("MutableProbeTmp.java"), Arrays.asList(
@@ -1165,7 +1168,7 @@ public class PluginDependencyRuleTest
 	@Test
 	public void flagsLeafPackageDrift() throws IOException
 	{
-		Path fixture = Files.createTempDirectory("dep-rule-census");
+		Path fixture = newFixtureRoot("dep-rule-census");
 		Files.createDirectories(fixture.resolve("shortestpath").resolve("transport"));
 		Files.createDirectories(fixture.resolve("shortestpath").resolve("newpkg"));
 
@@ -1182,5 +1185,48 @@ public class PluginDependencyRuleTest
 		missing.removeAll(observed);
 		assertTrue("every declared leaf absent from the fixture must surface as missing",
 			missing.contains("items") && missing.contains("pathfinder"));
+	}
+
+	private final List<Path> fixtureRoots = new ArrayList<>();
+
+	/**
+	 * Allocate a fixture root under the system temp directory and
+	 * register it for {@link #cleanFixtures()} — the red-direction
+	 * proofs write only to these roots, never to the submodule
+	 * tree.
+	 */
+	private Path newFixtureRoot(String prefix) throws IOException
+	{
+		Path dir = Files.createTempDirectory(prefix);
+		fixtureRoots.add(dir);
+		return dir;
+	}
+
+	/**
+	 * Delete every fixture root the test allocated. The
+	 * {@code dep-rule-*} trees are scan inputs, not artifacts —
+	 * leaving them would grow the system temp dir by one tree per
+	 * fixture test per run.
+	 */
+	@After
+	public void cleanFixtures() throws IOException
+	{
+		for (Path root : fixtureRoots)
+		{
+			if (!Files.isDirectory(root))
+			{
+				continue;
+			}
+			List<Path> paths;
+			try (Stream<Path> stream = Files.walk(root))
+			{
+				paths = stream.sorted(Comparator.reverseOrder())
+					.collect(Collectors.toList());
+			}
+			for (Path path : paths)
+			{
+				Files.delete(path);
+			}
+		}
 	}
 }
