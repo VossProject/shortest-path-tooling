@@ -727,11 +727,18 @@ public class PluginDependencyRuleTest
 	 * {@code mainRoot/shortestpath} — directories only; the
 	 * root-package files ({@code ShortestPathPlugin},
 	 * {@code ShortestPathConfig}, the shared utilities) are not
-	 * packages and never count.
+	 * packages and never count. A missing {@code shortestpath}
+	 * directory degrades to the empty set — the same policy as the
+	 * other walkers — so the census reports every declared leaf as
+	 * missing instead of erroring on the walk itself.
 	 */
 	static SortedSet<String> observedLeafPackages(Path mainRoot) throws IOException
 	{
 		Path base = mainRoot.resolve("shortestpath");
+		if (!Files.isDirectory(base))
+		{
+			return Collections.emptySortedSet();
+		}
 		try (Stream<Path> stream = Files.list(base))
 		{
 			return stream.filter(Files::isDirectory)
@@ -1185,6 +1192,12 @@ public class PluginDependencyRuleTest
 		missing.removeAll(observed);
 		assertTrue("every declared leaf absent from the fixture must surface as missing",
 			missing.contains("items") && missing.contains("pathfinder"));
+
+		Path bare = newFixtureRoot("dep-rule-census-bare");
+		SortedSet<String> none = observedLeafPackages(bare);
+		assertTrue("a fixture root with no shortestpath directory must observe "
+				+ "no packages rather than error: " + none,
+			none.isEmpty());
 	}
 
 	private final List<Path> fixtureRoots = new ArrayList<>();
