@@ -183,6 +183,10 @@ public class PluginDependencyRuleTest
 			"PathScheduler.attach takes the ItemStateService for refresh routing");
 		LEAF_EDGES.put("scheduler -> pathfinder",
 			"PathScheduler drives Pathfinder/ActiveSearch/PathfinderConfig/PathStep");
+		LEAF_EDGES.put("scheduler -> requirement",
+			"PathScheduler passes the schedule-time TransportEligibility snapshot to the consumption validator in onPathComplete");
+		LEAF_EDGES.put("scheduler -> transport",
+			"PathScheduler reads the unpayable Transport the validator returns to exclude it and re-plan");
 		// The coordinator extraction adds the declared-fact channels:
 		// producers inject RefreshCoordinator (inbound) and the coordinator
 		// reads the fact types it translates (outbound).
@@ -222,6 +226,8 @@ public class PluginDependencyRuleTest
 		// requirement/ -> presentation/ whole-type move.
 		LEAF_EDGES.put("api -> pathfinder",
 			"PluginMessageHandler serializers walk PathStep/PathfinderResult/ActiveSearch; MenuVerbs reads ActiveSearch/PathStep");
+		LEAF_EDGES.put("api -> requirement",
+			"PluginMessageTargets reads ItemRequirement/TransportItems at their requirement/model home");
 		LEAF_EDGES.put("api -> presentation",
 			"PluginMessageHandler serializers and MenuVerbs annotate edges through the injected PathAnnotator");
 		LEAF_EDGES.put("api -> scheduler",
