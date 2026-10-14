@@ -69,7 +69,7 @@ public final class PathfinderDashboardModels {
         public List<Marker> markers;
         public List<String> details;
 
-        /** Reachability: route mode id from the route CSV / scenario (e.g. {@code ALL}, {@code BANK}). */
+        /** Reachability: the scenario's profile name (e.g. {@code ALL}, {@code UNIT_TEST}). */
         public String routeModeId;
         /** Teleportation item policy name (matches {@code TeleportationItem} enum). */
         public String teleportationItems;

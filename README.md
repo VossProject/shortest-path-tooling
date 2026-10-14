@@ -56,11 +56,12 @@ The default remains the `./shortest-path` Git submodule.
 
 | Task | Description |
 |------|-------------|
-| `./gradlew dashboard` | Build the pathfinder dashboard from the default routes dataset and the sailing routes |
-| `./gradlew dashboard -PdashboardDataset=/dashboard/clue_locations_full.csv` | Build dashboard from a specific dataset (only that one) |
-| `./gradlew sailingDashboard -PshortestPathDir=../shortest-path` | Build only the sailing routes, with the experimental sailing search drawn next to the normal path (needs a plugin checkout with the sailing search) |
-| `./gradlew captureExpectedLengths` | Write actual path lengths back into the source CSV as `expected_length` |
-| `./gradlew sailingBenchmark -PshortestPathDir=../shortest-path` | Time the experimental sailing search against the existing search on routes at sea (needs a plugin checkout with the sailing search) |
+| `./gradlew dashboard` | Build the pathfinder dashboard from the default `routes` suite and the `sailing-routes` suite |
+| `./gradlew dashboard -PdashboardSuite=clue-locations-full` | Build dashboard from a specific scenario suite (only that one) |
+| `./gradlew pagesSite` | Build every bundle of the site the plugin publishes to GitHub Pages (the plugin's Dashboard Pages workflow runs it; change the published bundles in `gradle/dashboards.gradle`) |
+| `./gradlew sailingDashboard` | Build only the sailing routes, with the experimental sailing search drawn next to the normal path (needs a plugin checkout with the sailing search) |
+| `./gradlew captureExpectedLengths -PdashboardSuite=routes` | Write actual path lengths into the suite's `src/test/resources/scenarios/expected-lengths/<suite>.json` |
+| `./gradlew sailingBenchmark` | Time the experimental sailing search against the existing search on routes at sea (needs a plugin checkout with the sailing search) |
 | `./gradlew bankTileDump -PbankTileCacheDir=<dir> -PbankTileXteaPath=<keys.json>` | Dump bank-object placements from an OSRS cache to TSV |
 | `./gradlew sailingAmenityVarbitDump -PsailingAmenityCacheDir=<dir> -PsailingAmenityXteaPath=<keys.json>` | Dump Sailing island amenity varbits from an OSRS cache |
 | `./gradlew routingCuts -PkahipNodeSeparator=<path>` | Generate the exact pathfinder's `routing-cuts.bin` with KaHIP (see below) |
@@ -68,14 +69,16 @@ The default remains the `./shortest-path` Git submodule.
 | `./gradlew benchmarkCanonical --args="..."` | Run a resolved benchmark manifest (used by shortest-path-benchmarks) |
 | `./gradlew route -ProuteArgs="..."` | Query one canonical route and print its selected path |
 
-The route query uses the same canonical account compiler and adapter as
-`benchmarkCanonical`. Pass the corpus checkout with `--corpus`; add
+The route query uses the same profiles and adapter as `benchmarkCanonical`. PROFILE is any
+profile (`early`/`mid`/`end`/`maxed` or a dashboard preset such as `UNIT_TEST`), and
+`-ProuteSuite=SUITE -ProuteScenario="NAME"` runs one scenario of any suite
+(`-ProuteArgs=--list` lists them). It reads the routes in this checkout's `corpus/`; add
 `--algorithm exact`, `--json` or `--counters` as needed. Routes can be given by
 corpus ID (`--route ID --profile PROFILE`) or by coordinates:
 
 ```bash
 ./gradlew \
-  -ProuteArgs='--corpus ../shortest-path-corpus maxed 2411 4434 0 2995 3114 0 --json' \
+  -ProuteArgs='maxed 2411 4434 0 2995 3114 0 --json' \
   route
 ```
 
@@ -116,9 +119,11 @@ All options are passed via `-P`:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `dashboardDataset` | `/dashboard/routes.csv` | Path to the CSV dataset (resolved from test resources) |
-| `dashboardBundle` | derived from filename | Bundle name in the output site |
-| `dashboardTitle` | derived from filename | Title shown in the UI |
+| `dashboardSuite` | `routes` | Scenario suite to run (`./gradlew -q scenarioIndex` lists them; see [docs/scenarios.md](docs/scenarios.md)) |
+| `dashboardFilter` | *(empty)* | Run only scenarios whose name or category contains it |
+| `dashboardDataset` | *(empty)* | A route JSON file (the canonical route format, run with `ALL`) to run instead of a suite |
+| `dashboardBundle` | derived from the suite name | Bundle name in the output site |
+| `dashboardTitle` | derived from the suite name | Title shown in the UI |
 | `dashboardSubtitle` | *(empty)* | Subtitle shown in the UI |
 | `dashboardProfile` | `true` | Whether to enable the profiler |
 
@@ -126,11 +131,11 @@ For the datasets and when to use each, see [docs/dashboard-design.md](docs/dashb
 
 ## Canonical corpus benchmark
 
-The canonical corpus (routes and account profiles) lives in the
-[shortest-path-corpus](https://github.com/osrs-pathfinding/shortest-path-corpus)
-repository. The commands that use it take the checkout as an explicit `--corpus`
-argument. Tests that use it read `-PcorpusDir` (default
-`../shortest-path-corpus`); nothing else needs it.
+The canonical routes live in [`corpus/`](corpus/README.md) and the canonical accounts are Java in
+[`accounts/`](accounts/README.md). `benchmarkCanonical`, the route CLI and the tests all use this
+checkout's routes and accounts, so the tooling commit in a benchmark's execution metadata identifies
+both. There is no `--corpus` argument: to benchmark other routes or accounts, check out the tooling
+revision that has them.
 
 `benchmarkCanonical` is the integration point for the
 [shortest-path-benchmarks](https://github.com/osrs-pathfinding/shortest-path-benchmarks)
@@ -140,7 +145,6 @@ manifest in one JVM, for the legacy or exact backend:
 ```bash
 ./gradlew benchmarkCanonical \
   --args="--manifest /path/to/resolved-experiment.json \
-          --corpus ../shortest-path-corpus \
           --output build/benchmarks/java-adapter.json"
 ```
 
@@ -149,9 +153,12 @@ VM identity, dependency Git identities, the synthetic benchmark clock, and v2
 observations. Expected reachability comes from each route's curated
 `negativeProfiles`; there is no expected cost.
 
-Accounts are compiled from the corpus profiles into a plugin configuration
-(`CanonicalAccountCompiler`). The rune pouch is flattened into carried
-inventory, and selected POH mounted items and nexus portals are passed through.
+Each case is the `canonical` suite scenario `<route id>/<profile>`, run through the same
+`ScenarioRunner` as the route CLI and the dashboard; see [docs/scenarios.md](docs/scenarios.md).
+
+CI runs a light benchmark through this adapter (`python3 scripts/benchmark_smoke.py`: two cases on
+each backend, checked the way the harness reads them). If you change the adapter's arguments,
+manifest format or output, update shortest-path-benchmarks to match.
 
 ## Keeping up with the plugin
 
@@ -190,7 +197,3 @@ python3 scripts/rebuild_bank_tsv.py
 
 - [`shortest-path`](https://github.com/Skretzo/shortest-path) — the plugin
   itself (carried here as the `shortest-path/` submodule).
-- [`shortest-path-corpus`](https://github.com/osrs-pathfinding/shortest-path-corpus)
-  — implementation-neutral benchmark corpus: canonical routes, account
-  profiles, and reachability expectations shared across pathfinding
-  implementations.

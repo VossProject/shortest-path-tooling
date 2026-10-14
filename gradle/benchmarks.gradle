@@ -1,8 +1,8 @@
 // --- Canonical corpus benchmarks ---
 //
-// The canonical corpus lives in its own repository. The commands below take it as an explicit
-// --corpus argument; tests read -PcorpusDir (default: ../shortest-path-corpus).
-def testCorpusDir = providers.gradleProperty('corpusDir')
+// The canonical routes are this checkout's corpus/, like the canonical accounts are its accounts/:
+// tests, benchmarkCanonical and route all read them there (corpus.dir).
+def corpusDir = rootProject.file('corpus')
 
 def git = { File directory, List<String> arguments ->
     def output = new ByteArrayOutputStream()
@@ -25,9 +25,7 @@ def commitOf = { File directory -> git(directory, ['rev-parse', 'HEAD']) ?: 'unk
 def dirtyOf = { File directory -> !(git(directory, ['status', '--porcelain']) ?: '').isEmpty() }
 
 tasks.named('test') {
-    if (testCorpusDir.isPresent()) {
-        systemProperty 'benchmark.corpusDir', file(testCorpusDir.get()).absolutePath
-    }
+    systemProperty 'corpus.dir', corpusDir.absolutePath
 }
 
 // Runs the case list of a shortest-path-benchmarks manifest in one JVM and writes the
@@ -37,8 +35,9 @@ tasks.register('benchmarkCanonical', JavaExec) {
     description = 'Runs the exact resolved canonical manifest in one Java process.'
     dependsOn 'testClasses'
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'shortestpath.benchmark.canonical.BenchmarkMain'
+    mainClass = 'shortestpath.benchmark.BenchmarkMain'
     jvmArgs = ['-Xms1g', '-Xmx8g']
+    systemProperty 'corpus.dir', corpusDir.absolutePath
     doFirst {
         File plugin = gradle.ext.shortestPathProjectDir
         systemProperty 'benchmark.toolingCommit', commitOf(rootProject.projectDir)
@@ -51,15 +50,28 @@ tasks.register('benchmarkCanonical', JavaExec) {
 // Runs one canonical route for one account profile and prints the selected path.
 tasks.register('route', JavaExec) {
     group = 'verification'
-    description = 'Runs one canonical route query and prints its selected path.'
+    description = 'Runs one route query and prints its selected path: a canonical route, coordinates, ' +
+            'or a suite scenario (-ProuteSuite=SUITE -ProuteScenario="NAME", or -ProuteSuite=SUITE ' +
+            '-ProuteArgs=--list).'
     dependsOn 'testClasses'
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'shortestpath.benchmark.canonical.CanonicalRouteCli'
+    mainClass = 'shortestpath.route.RouteCli'
+    systemProperty 'corpus.dir', corpusDir.absolutePath
     def routeArgs = providers.gradleProperty('routeArgs')
+    // Passed as single arguments, so scenario names may contain spaces.
+    def routeSuite = providers.gradleProperty('routeSuite')
+    def routeScenario = providers.gradleProperty('routeScenario')
     doFirst {
-        if (!routeArgs.isPresent()) {
-            throw new GradleException('route requires -ProuteArgs="--corpus DIR PROFILE START_X START_Y START_PLANE TARGET_X TARGET_Y TARGET_PLANE"')
+        if (!routeArgs.isPresent() && !routeSuite.isPresent()) {
+            throw new GradleException('route requires -ProuteArgs="PROFILE START_X START_Y START_PLANE TARGET_X TARGET_Y TARGET_PLANE" or -ProuteSuite=SUITE -ProuteScenario="NAME"')
         }
-        args routeArgs.get().trim().split(/\s+/) as List
+        def parsed = routeArgs.isPresent() ? (routeArgs.get().trim().split(/\s+/) as List) : []
+        if (routeSuite.isPresent()) {
+            parsed += ['--suite', routeSuite.get()]
+        }
+        if (routeScenario.isPresent()) {
+            parsed += ['--scenario', routeScenario.get()]
+        }
+        args parsed
     }
 }

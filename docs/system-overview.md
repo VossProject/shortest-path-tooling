@@ -28,7 +28,7 @@ Everything here is development tooling. None of it ships with the plugin.
 |-------|-----------|-------|
 | Plugin submodule | The actual plugin, pinned at a commit. All pathfinding data lives under `shortest-path/src/main/resources/` | `shortest-path/` |
 | Composite build | Gradle wires the submodule in as an included build, so tooling code uses the plugin's real classes without living in the plugin repo | `settings.gradle`, `build.gradle` |
-| Dashboard | Generates an HTML report that runs pathfinding scenarios (CSV rows) against the collision map and records where each path went, how long it took, and whether it met expectations | `src/test/java/shortestpath/dashboard/` → `build/reports/pathfinder-dashboard/` |
+| Dashboard | Generates an HTML report that runs pathfinding scenarios (a scenario suite) against the collision map and records where each path went, how long it took, and whether it met expectations | `src/test/java/shortestpath/dashboard/` → `build/reports/pathfinder-dashboard/` |
 | Cache dumpers | Java programs that read the OSRS game cache and dump ground truth (object placements, varbits, league regions, bank tiles) to files | `src/test/java/shortestpath/dump/`, `gradle/cache-dumpers.gradle` |
 | Orchestrator | `scripts/maintenance.py` — one CLI for the whole maintenance surface | `scripts/maintenance.py` |
 | Validators | Deterministic data checks (TSV shape, zip structure, walkability, regions, scenario grammar) | `scripts/validate_data.py` + friends |
@@ -64,9 +64,10 @@ Three ideas make this work:
 - **The game cache is the oracle.** Whatever the TSVs claim, the cache
   knows what the world actually contains. Dumpers extract that truth;
   validators compare claims against it.
-- **A red row is a failing gate.** Every committed scenario CSV is
-  swept by the verify pipeline; intentional failures must be annotated
-  (`expect_reachable=false`) so red always means something.
+- **A red row is a failing gate.** Every committed scenario suite is
+  swept by the verify pipeline; intentional failures must be declared
+  (`.expectUnreachable()`, or a route's `negativeProfiles`) so red always
+  means something.
 
 ## The two gates
 
@@ -97,21 +98,22 @@ When someone reports a routing bug upstream, the loop is:
    `ISSUE-<N>.md` shadow file (upstream text quarantined in UNTRUSTED
    sections; maintainer notes kept in separate sections that re-sync
    preserves).
-2. **Normalize** — turn the report into a scenario row in
-   `scenarios.csv`: start, target, game state (varbits/varplayers/quests/
-   equipment), and what "correct" means (`expected_length`,
-   `expect_reachable`, …).
-3. **Reproduce** — run the dashboard on that row against the current
+2. **Normalize** — turn the report into a Java scenario in
+   `RoutingIssueScenarios` (category `<domain>-issue-<N>`): start, target,
+   profile, account overrides (varbits/varplayers/quests/items), and what
+   "correct" means (captured expected length, `.minimumLength`,
+   `.expectUnreachable()`), and list its name in the shadow's
+   `scenario_rows`.
+3. **Reproduce** — run the dashboard on that suite against the current
    data. `reached:false` or a length mismatch = bug reproduced.
 4. **Fix** — repair the data (usually submodule TSVs, on a fork branch).
 5. **Verify** — `import_issues.py verify` re-reads the post-fix
    `report.json`; only with passing evidence does the issue reach
-   `status: verified`. Then the fixed row gets promoted into the
-   committed datasets (`src/test/resources/dashboard/*-issues.csv`)
-   so it becomes a permanent regression test.
+   `status: verified`. The scenario is already committed, so it is a
+   permanent regression test.
 
-That last step is the point: **every fixed bug becomes a dataset row**,
-and every dataset row is swept by `verify`, so regressions surface the
+That is the point: **every fixed bug becomes a committed scenario**,
+and every scenario suite is swept by `verify`, so regressions surface the
 moment data drifts again.
 
 ## A typical maintenance cycle
@@ -161,12 +163,12 @@ intentional) or fix the data, never to silence the check.
   compares committed expectations against *this*, so expectations
   captured on a newer checkout go red until the pin catches up.
 - **Varbit / varplayer** — game-state bits that gate content
-  (e.g., "this door is unlocked"). Scenarios set them in the
-  `varbits`/`varplayers` columns; `bypassVarbitChecks` /
+  (e.g., "this door is unlocked"). Scenarios set them through account
+  facts (`.account(a -> a.unlock(...))`) or raw `varbit`/`varplayer`; `bypassVarbitChecks` /
   `bypassVarPlayerChecks` tell the harness to ignore those gates.
-- **Scenario / dataset / bundle** — a scenario is one CSV row (start →
-  target + state + expectation); a dataset is a CSV file of them; a
-  bundle is one dataset's rendered output under
+- **Scenario / suite / bundle** — a scenario is one route (start →
+  target + profile + overrides + expectation); a suite is a named list of
+  them (Java, or route JSON); a bundle is one suite's rendered output under
   `build/reports/pathfinder-dashboard/bundles/`, including its
   `report.json` evidence file.
 - **Drift detector** — two cache-backed scans run by `validate --drift`:
@@ -181,6 +183,6 @@ intentional) or fix the data, never to silence the check.
 | You want to… | Read |
 |--------------|------|
 | Refresh data after a game update | [maintenance.md](maintenance.md) |
-| Add or tune a dashboard scenario | [dashboard-design.md](dashboard-design.md) (CSV format) |
+| Add or tune a scenario | [scenarios.md](scenarios.md) |
 | Triage a reported routing bug | `.planning/issues/README.md` |
 | Understand the pathfinder itself | [pathfinder-performance-analysis.md](pathfinder-performance-analysis.md) |

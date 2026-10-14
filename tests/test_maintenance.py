@@ -1516,14 +1516,16 @@ def test_probes_failure_continues_and_reports(tmp_path, monkeypatch,
 # ---------- verify subcommand ----------
 
 
+# The suites ./gradlew -q scenarioIndex lists.
 DASHBOARD_CSVS = [
-    "clue_locations_full.csv",
-    "collision-map-issues.csv",
-    "f2p_routes.csv",
-    "quetzal_whistle_routes.csv",
-    "routes.csv",
-    "seasonal_briefcase_routes.csv",
-    "unit-tests.csv",
+    "canonical",
+    "clue-locations-full",
+    "collision-map-issues",
+    "f2p-routes",
+    "quetzal-whistle-routes",
+    "routes",
+    "seasonal-briefcase-routes",
+    "unit-tests",
 ]
 
 
@@ -1640,10 +1642,8 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
 
     def fake_run(cmd, *, cwd=None, timeout=None, binary=False, stream=False, on_line=None):
         calls.append((list(cmd), cwd))
-        if cmd[:2] == ["git", "ls-files"]:
-            return cp(cmd, "".join(
-                f"src/test/resources/dashboard/{d}\n"
-                for d in datasets))
+        if cmd == ["./gradlew", "-q", "scenarioIndex"]:
+            return cp(cmd, json.dumps({d: [] for d in datasets}) + "\n")
         if cmd[:3] == ["git", "ls-tree", "HEAD"]:
             return cp(cmd, gitlink, rc=ls_tree_rc)
         if cmd[:4] == ["git", "-C", "shortest-path", "show"]:
@@ -1651,10 +1651,10 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
             return subprocess.CompletedProcess(
                 cmd, show_rc, show_bytes, b"")
         if cmd[:2] == ["./gradlew", "dashboard"]:
-            dataset = next(a.split("=", 1)[1] for a in cmd
-                           if a.startswith("-PdashboardDataset="))
-            csv = dataset.rsplit("/", 1)[-1]
-            slug = Path(csv).stem.lower().replace("_", "-")
+            suite = next(a.split("=", 1)[1] for a in cmd
+                         if a.startswith("-PdashboardSuite="))
+            csv = suite
+            slug = suite.lower().replace("_", "-")
             runs = (runs_for(csv) if runs_for
                     else [make_run_record(csv)])
             if csv not in missing_reports:
@@ -1702,37 +1702,50 @@ def verify_kind(cmd):
     return "git"
 
 
-def test_verify_derives_datasets_from_git_ls_files(tmp_path,
+def test_verify_derives_datasets_from_scenario_suites(tmp_path,
                                                    monkeypatch):
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
     rc = mm.main(["verify"])
     assert rc == 0
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
-    assert len(dashboards) == 7
+    assert len(dashboards) == len(DASHBOARD_CSVS)
     for cmd in dashboards:
         assert "-PdashboardProfile=false" in cmd
     swept = sorted(
-        next(a for a in c if a.startswith("-PdashboardDataset="))
+        next(a for a in c if a.startswith("-PdashboardSuite="))
         .split("=", 1)[1] for c in dashboards)
-    assert swept == sorted(
-        f"/dashboard/{name}" for name in DASHBOARD_CSVS)
-    # The gitignored scratch dataset can never enter the sweep — the
-    # list comes from git ls-files, not a directory glob.
-    assert not any("debug.csv" in a for c in dashboards for a in c)
+    assert swept == sorted(DASHBOARD_CSVS)
+    # The list comes from the Java suite registry, never a directory glob.
+    assert ["./gradlew", "-q", "scenarioIndex"] in [c for c, _ in calls]
 
 
-def test_verify_datasets_ignore_non_csv(tmp_path, monkeypatch):
-    # A committed README/.gitignore under dashboard/ is not a dataset.
+def test_verify_unparseable_index_fails_closed(tmp_path, monkeypatch,
+                                               capsys):
+    # An index that is not JSON lists no suites, which fails the tier.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch, datasets=[])
+    real = mm.run
+
+    def broken(cmd, **kwargs):
+        if cmd == ["./gradlew", "-q", "scenarioIndex"]:
+            return cp(cmd, "Note: not json\n")
+        return real(cmd, **kwargs)
+
+    monkeypatch.setattr(mm, "run", broken)
+    rc = mm.main(["verify"])
+    assert rc == 1
+    assert "no dashboard suites listed" in capsys.readouterr().out
+
+
+def test_verify_datasets_single_suite(tmp_path, monkeypatch):
     repo, _, calls = prepare_verify(
-        tmp_path, monkeypatch,
-        datasets=["routes.csv", "README.md", ".gitignore"])
+        tmp_path, monkeypatch, datasets=["routes"])
     rc = mm.main(["verify"])
     assert rc == 0
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
     assert len(dashboards) == 1
-    assert "-PdashboardDataset=/dashboard/routes.csv" in dashboards[0]
+    assert "-PdashboardSuite=routes" in dashboards[0]
 
 
 def test_verify_overlay_flags(tmp_path, monkeypatch):
@@ -1744,16 +1757,16 @@ def test_verify_overlay_flags(tmp_path, monkeypatch):
         if cmd[:2] != ["./gradlew", "dashboard"]:
             continue
         name = next(a for a in cmd
-                    if a.startswith("-PdashboardDataset=")).rsplit(
-                        "/", 1)[-1]
+                    if a.startswith("-PdashboardSuite=")).split(
+                        "=", 1)[1]
         by_dataset[name] = cmd
     assert "-PdashboardSeasonal=true" in \
-        by_dataset["seasonal_briefcase_routes.csv"]
-    assert "-PdashboardF2p=true" in by_dataset["f2p_routes.csv"]
+        by_dataset["seasonal-briefcase-routes"]
+    assert "-PdashboardF2p=true" in by_dataset["f2p-routes"]
     assert not any("dashboardSeasonal" in a
-                   for a in by_dataset["routes.csv"])
+                   for a in by_dataset["routes"])
     assert not any("dashboardF2p" in a
-                   for a in by_dataset["routes.csv"])
+                   for a in by_dataset["routes"])
 
 
 def test_verify_compile_failure_marks_tier_but_continues(
@@ -1786,7 +1799,7 @@ def test_verify_dashboard_tier_reads_bundles(tmp_path, monkeypatch,
     # build/reports/pathfinder-dashboard/bundles/{slug}/report.json —
     # a clean report at the real location must pass the tier.
     repo, _, calls = prepare_verify(
-        tmp_path, monkeypatch, datasets=["routes.csv"])
+        tmp_path, monkeypatch, datasets=["routes"])
     rc = mm.main(["verify"])
     assert rc == 0
     assert "PASS dashboard" in capsys.readouterr().out
@@ -1801,7 +1814,7 @@ def test_verify_dashboard_tier_still_fails_closed(tmp_path, monkeypatch,
         return [make_run_record("no path", reached=False)]
 
     repo, _, calls = prepare_verify(
-        tmp_path, monkeypatch, datasets=["routes.csv"],
+        tmp_path, monkeypatch, datasets=["routes"],
         runs_for=runs_for)
     rc = mm.main(["verify"])
     assert rc == 1
@@ -1810,8 +1823,8 @@ def test_verify_dashboard_tier_still_fails_closed(tmp_path, monkeypatch,
     assert "no path: unreachable" in out
 
     repo, _, calls = prepare_verify(
-        tmp_path / "missing", monkeypatch, datasets=["routes.csv"],
-        missing_reports=["routes.csv"])
+        tmp_path / "missing", monkeypatch, datasets=["routes"],
+        missing_reports=["routes"])
     rc = mm.main(["verify"])
     assert rc == 1
     assert "missing or unreadable report" in capsys.readouterr().out
@@ -1822,7 +1835,7 @@ def test_verify_scan_path_contains_bundles(tmp_path, monkeypatch):
     # bundles/ segment the publisher always writes — a future layout
     # edit cannot silently re-break the tier.
     repo, _, calls = prepare_verify(
-        tmp_path, monkeypatch, datasets=["routes.csv"])
+        tmp_path, monkeypatch, datasets=["routes"])
     seen = []
     real = mm.scan_report
 
@@ -1923,7 +1936,7 @@ def test_verify_skip_flags(tmp_path, monkeypatch):
 def test_verify_returns_nonzero_on_any_tier_failure(
         tmp_path, monkeypatch, capsys):
     def runs_for(csv):
-        if csv == "routes.csv":
+        if csv == "routes":
             return [make_run_record("broken route", reached=False)]
         return [make_run_record(csv)]
 
@@ -2208,23 +2221,6 @@ def test_validate_summary_line(tmp_path, monkeypatch, capsys):
     assert f"validate: {n}/{n} checks passed" in out
 
 
-def test_validate_scenario_csv_skip_flag(tmp_path, monkeypatch,
-                                         capsys):
-    _, _, calls = prepare_validate(tmp_path, monkeypatch)
-    rc = mm.main(["validate", "--skip-scenario-csv"])
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "SKIP scenario-csv" in out
-    names = leaf_names(calls)
-    assert "scenario-csv" not in names
-    # The skipped check's leaf call is the only one removed.
-    assert sorted(names) == sorted(
-        n for n in (hard_leaf_names() + advisory_leaf_names())
-        if n != "scenario-csv")
-    n = len(mm.VALIDATE_HARD_CHECKS) - 1
-    assert f"validate: {n}/{n} checks passed" in out
-
-
 def test_validate_region_override_skip_flag(tmp_path, monkeypatch,
                                             capsys):
     _, _, calls = prepare_validate(tmp_path, monkeypatch)
@@ -2239,29 +2235,6 @@ def test_validate_region_override_skip_flag(tmp_path, monkeypatch,
         if n != "region-override")
     n = len(mm.VALIDATE_HARD_CHECKS) - 1
     assert f"validate: {n}/{n} checks passed" in out
-
-
-def test_validate_scenario_var_gating_advisory(tmp_path, monkeypatch,
-                                               capsys):
-    # The dead var-stub lint runs under `validate` as an advisory leaf:
-    # its findings report under the section but can never move the
-    # exit code, and its skip flag removes it alone.
-    _, _, calls = prepare_validate(
-        tmp_path, monkeypatch,
-        check_stdout={"scenario-var-gating":
-                      "=== Scenario var gating bypass (1 findings) ===\n"
-                      "  x.csv:2: varbits stub ids [4498] are "
-                      "transport-requirement gated\n"})
-    assert "scenario-var-gating" in advisory_names()
-    rc = mm.main(["validate"])
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "ADVISORY scenario-var-gating" in out
-    assert "scenario-var-gating" in leaf_names(calls)
-    rc = mm.main(["validate", "--skip-scenario-var-gating"])
-    out = capsys.readouterr().out
-    assert rc == 0
-    assert "SKIP scenario-var-gating" in out
 
 
 def _write_tsv(root, rel, header_cells, rows):

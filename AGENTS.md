@@ -17,8 +17,10 @@ around it.
 | Path | Contents |
 |------|----------|
 | `shortest-path/` | Git submodule (pinned commit). Plugin sources + data in `src/main/resources/` (`collision-map.zip`, `destinations/`, `transports/`, `leagues/`). |
-| `src/test/java/shortestpath/` | All Java lives under *test* sources: `dashboard/` (site generator), `dump/` (cache dumpers), `pathfinder/` (profiling). |
-| `src/test/resources/` | Dashboard web assets + CSV route datasets under `dashboard/` + region TSVs. |
+| `accounts/` | Gradle subproject: `Account` (an account as a player describes it: levels, quests, diaries, unlocks, items, house), `AccountCompiler` (the only place facts become the varbits/varplayers in a `ClientState`), `HeadlessClient` (a RuneLite `Client` answering from a `ClientState`), and the canonical profiles (`canonical/CanonicalAccounts`). |
+| `corpus/` | Canonical routes, and the JSON schemas of the standalone web planner (see `corpus/README.md`). |
+| `src/test/java/shortestpath/` | All other Java lives under *test* sources: `profiles/` (every named profile, `PluginSettings`, the account's pathfinder config), `scenarios/` (scenario suites), `dashboard/` (site generator), `benchmark/` (benchmark adapter), `route/` (`route` CLI); model in `docs/scenarios.md`, `dump/` (cache dumpers), `pathfinder/` (profiling). |
+| `src/test/resources/` | Dashboard web assets, scenario data + expected lengths under `scenarios/`, region TSVs. |
 | `gradle/` | Task definitions: `dashboards.gradle`, `cache-dumpers.gradle`. |
 | `scripts/` | Python orchestration (see Scripts map below). |
 | `tests/` | pytest suite for the Python scripts (`fixtures/` for test data). |
@@ -48,16 +50,19 @@ python3 scripts/maintenance.py verify    # full gate: compile → submodule test
 python3 scripts/maintenance.py validate  # data validation: hard gate + advisory tiers
 ```
 
-Dashboard options are `-P` properties: `dashboardDataset` (default
-`/dashboard/routes.csv`), `dashboardBundle`, `dashboardTitle`,
+Dashboard options are `-P` properties: `dashboardSuite` (default
+`routes`; `./gradlew -q scenarioIndex` lists every suite; `-PdashboardTier=smoke`
+selects a canonical tier),
+`dashboardFilter` (only scenarios whose name or category contains it),
+`dashboardDataset` (a route JSON file to run instead),
+`dashboardBundle`, `dashboardTitle`,
 `dashboardSubtitle`, `dashboardProfile` (default: **auto** — profiling runs
 only for datasets of ≤ 200 scenarios; pass `true`/`false` to force),
 `dashboardHeatmap` (default true; only applies when profiling is on),
 `dashboardSeasonal`, `dashboardF2p`, `dashboardThreads` (parallel scenario
-workers; default `availableProcessors()-3`), `dashboardBackend` (routing
-engine: `LEGACY` default or `EXACT`; a per-row `pathfinderBackend` config
-override still wins, and exact searches record unprofiled). Other tasks: `captureExpectedLengths` (writes actual lengths
-back into the CSV) and the cache dumpers/probes in `gradle/cache-dumpers.gradle`
+workers; default `availableProcessors()-3`), `dashboardBackend` (`legacy`
+default or `exact`; exact runs are unprofiled). Other tasks: `captureExpectedLengths` (writes actual lengths
+into `src/test/resources/scenarios/expected-lengths/<suite>.json`) and the cache dumpers/probes in `gradle/cache-dumpers.gradle`
 (`bankTileDump`, `sailingAmenityVarbitDump`, `leagueRegionDump`,
 `f2pRegionDump`, `leagueIdProbe`, `transportAnchorDrift`, the `briefcase*`
 scans, …). Dumpers take `-P<name>CacheDir=` and `-P<name>XteaPath=` props.
@@ -66,7 +71,7 @@ Profiling is expensive — check the `[profiled|unprofiled]` tag on the
 "Running N scenario(s)" banner to confirm what a run is doing:
 
 - **Large datasets auto-run unprofiled** (>200 scenarios, e.g.
-  `clue_locations_full.csv` — ~1 min vs tens of minutes). Pass
+  `clue-locations-full` — ~1 min vs tens of minutes). Pass
   `-PdashboardProfile=true` only when you specifically need profiled data
   for a big dataset.
 - **Small datasets stay profiled by default** (debugging keeps its
@@ -81,8 +86,8 @@ Profiling is expensive — check the `[profiled|unprofiled]` tag on the
 
 `verify` streams tier progress (per-dataset header + tqdm bar driven by the
 `[i/N]` scenario heartbeats in `DashboardTest`). Expect ~15–30 min: the
-dashboard tier launches one cold JVM per committed CSV (8+ datasets, the
-largest ~860 scenarios). `--skip-compile/--skip-lint/--skip-dashboard/
+dashboard tier launches one cold JVM per suite (8+ suites, the
+largest ~860 scenarios, plus the canonical tiers). `--skip-compile/--skip-lint/--skip-dashboard/
 --skip-diff` narrow the gate for fast iteration.
 
 `VarAccessProbeTest` scans cache clientscripts for var/operand access —
@@ -122,6 +127,7 @@ land in the Gradle log — usable when the Var Inspector panel can't copy.
 | `scripts/collision_zip.py` | Shared reader library for `collision-map.zip` (imported by other scripts). |
 | `scripts/analyse_dashboard_runs.py` | Compare two sets of dashboard `report.json` files, per-route deltas. |
 | `scripts/import_issues.py` | Sync upstream Skretzo/shortest-path issues/PRs into local datasets. |
+| `scripts/benchmark_smoke.py` | Runs `benchmarkCanonical` as shortest-path-benchmarks does and checks its output (in CI). Changing the adapter's arguments or output means updating shortest-path-benchmarks too. |
 
 ### Submodule scripts (`shortest-path/scripts/`)
 
@@ -148,8 +154,8 @@ belong to the submodule's branch/PR flow, not this repo.
   upstream by PR. Data-writing subcommands refuse `master`, detached HEAD,
   and dirty worktrees — keep the submodule clean before running them.
 - Plugin test helpers are shared, not copied: `build.gradle` pulls
-  `TestPathfinderConfig.java` and `TestShortestPathConfig.java` straight
-  from `shortest-path/src/test/java` into `compileTestJava`.
+  `TestShortestPathConfig.java` straight from `shortest-path/src/test/java`
+  into `compileTestJava` (`ConfigParityTest` compares defaults with it).
 - Run submodule tests with `./gradlew -p shortest-path test`.
 
 ## Upstream PR workflow
@@ -189,42 +195,25 @@ Checks that cannot fail get written every cycle — audit before shipping:
   `grep -o 'position = [0-9]*' ShortestPathConfig.java | sort | uniq -d`
   → empty. `renumber_config_positions.py` fixes collisions.
 
-## Benchmark corpus (related repo)
+## Benchmark corpus
 
-[`shortest-path-corpus`](https://github.com/osrs-pathfinding/shortest-path-corpus)
-is the implementation-neutral benchmark corpus for OSRS pathfinding — a
-separate repo consumed by this and other pathfinding projects as test
-fixtures. It owns:
+`corpus/` holds the canonical routes (formerly the `shortest-path-corpus` repo,
+history imported); see `corpus/README.md`.
 
-- `corpus/routes-v1.json` — canonical routes with stable `id`, authoritative
-  `start`/`target` `[x, y, plane]` coordinates, `allowTransports`, benchmark
-  `tiers` (`smoke`, `standard`, `full`), and `negativeProfiles` (profiles
-  expected to find the route unreachable — hand-curated, not derived).
-- `corpus/excluded-routes-v1.json` — excluded routes.
-- `accounts/account-profiles-v1.json` — four account profiles (`early`,
-  `mid`, `end`, `maxed`; the last two are quest-cape accounts) describing
-  skills, quests, diaries, items, unlocks, and routing variables.
-- `manifest.json` — format/file versions.
+- `corpus/corpus/routes-v1.json` — canonical routes (`id`, `start`/`target`,
+  `allowTransports`, `tiers`, hand-curated `negativeProfiles`). Data, edit directly;
+  `CanonicalCorpusTest` checks it.
+- The canonical accounts are Java only: `accounts/…/canonical/CanonicalAccounts.java`.
 
-The account JSON is generated — edit the Java sources under
-`profile-generator/src/main/java/shortestpath/corpus/profiles/`
-(`CanonicalProfiles.java`, `CanonicalItems.java`, `RoutingVariables.java`),
-never the JSON. Treat the generated JSON as an opaque contract: preserve
-field meanings, don't infer semantics from profile names, and treat unknown
-fields as extension data. RuneLite version is pinned in
-`profile-generator/build.gradle` — bumping it can change generated fixtures.
-
-Corpus repo commands (run there, not here):
+Query one route (the `route` CLI; its argument forms and JSON fields are
+agent-facing, keep them stable):
 
 ```bash
-./profile-generator/gradlew -p profile-generator test
-./profile-generator/gradlew -p profile-generator generateAccountProfiles
-./profile-generator/gradlew -p profile-generator verifyAccountProfiles
-node tools/validate.js
+./gradlew route -ProuteArgs="maxed 2411 4434 0 2995 3114 0 --json"   # any profile, incl. presets
+./gradlew route -ProuteArgs="gps-natural-0012 maxed --algorithm exact"
+./gradlew route -ProuteSuite=routing-issues -ProuteScenario="#140) usable"  # any suite scenario
+./gradlew route -ProuteSuite=canonical -ProuteArgs=--list
 ```
-
-Generation intentionally rewrites the committed fixture; CI runs tests and
-verification, not generation.
 
 ## OSRS wiki lookups
 
