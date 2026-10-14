@@ -32,7 +32,7 @@ Everything here is development tooling. None of it ships with the plugin.
 | Cache dumpers | Java programs that read the OSRS game cache and dump ground truth (object placements, varbits, league regions, bank tiles) to files | `src/test/java/shortestpath/dump/`, `gradle/cache-dumpers.gradle` |
 | Orchestrator | `scripts/maintenance.py` — one CLI for the whole maintenance surface | `scripts/maintenance.py` |
 | Validators | Deterministic data checks (TSV shape, zip structure, walkability, regions, scenario grammar) | `scripts/validate_data.py` + friends |
-| Issue store | Local shadow copies of upstream bug reports with a lifecycle and replay machinery | `.planning/issues/` + `scripts/import_issues.py` |
+| Issue store | Local shadow copies of upstream bug reports with a lifecycle and replay machinery | internal issue store + `scripts/import_issues.py` |
 | CI gate | Compile + pytest + deterministic validate on every push/PR | `.github/workflows/ci.yml` |
 
 ## How data flows
@@ -184,5 +184,5 @@ intentional) or fix the data, never to silence the check.
 |--------------|------|
 | Refresh data after a game update | [maintenance.md](maintenance.md) |
 | Add or tune a scenario | [scenarios.md](scenarios.md) |
-| Triage a reported routing bug | `.planning/issues/README.md` |
+| Triage a reported routing bug | `scripts/import_issues.py` (the issue shadow store and its replay loop) |
 | Understand the pathfinder itself | [pathfinder-performance-analysis.md](pathfinder-performance-analysis.md) |
