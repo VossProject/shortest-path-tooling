@@ -109,7 +109,7 @@ speculative dumpers, triage routing).
 
 ## Counts
 
-94 open register rows and 28 superseded/resolved marks, swept from 36
+95 open register rows and 28 superseded/resolved marks, swept from 36
 deferred-item sources (per-phase deferred lists, deferred-idea blocks in
 phase notes, the issue residual ledger, state notes, and the integration
 findings ledger). All sources are marked rolled up; this register is the
