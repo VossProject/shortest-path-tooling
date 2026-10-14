@@ -59,6 +59,13 @@ the rest.
 - Optional `clear`+`expected` compare-and-set complement for the
   getTarget plugin-message API (#531 follow-up, if upstream wants the
   race closed).
+- Skretzo/shortest-path#707, #708, #709, #710, #711 — five stack PR
+  bodies lack the architecture-boundary reference; they get stamped at
+  the merge-time body pass.
+- Skretzo/shortest-path#707 — the consumable-rejection semantics delta
+  carries no in-PR adversarial test (mode-matrix coverage ships in
+  #708's test class on the same tree); a dedicated test lands
+  post-merge only if upstream wants it.
 
 **Post-milestone features:**
 
@@ -102,7 +109,8 @@ speculative dumpers, triage routing).
 
 ## Counts
 
-87 open register rows and 28 superseded/resolved marks, swept from 35
+94 open register rows and 28 superseded/resolved marks, swept from 36
 deferred-item sources (per-phase deferred lists, deferred-idea blocks in
-phase notes, the issue residual ledger, and state notes). All sources are
-marked rolled up; this register is the one open ledger going forward.
+phase notes, the issue residual ledger, state notes, and the integration
+findings ledger). All sources are marked rolled up; this register is the
+one open ledger going forward.
