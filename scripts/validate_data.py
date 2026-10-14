@@ -75,15 +75,6 @@ DESTINATION_FIELDS = frozenset({
     "VarPlayers",
 })
 
-# Dashboard preset names — mirrors the PRESETS registry keys in
-# src/test/java/shortestpath/dashboard/DashboardPresets.java.  The
-# loader upper-cases the CSV cell before lookup, so matching is
-# case-insensitive here as well.
-SCENARIO_PRESETS = frozenset({
-    "NONE", "ALL", "BANK", "BANK_PERM", "INVENTORY",
-    "INVENTORY_NON_CONSUMABLE", "SEASONAL", "UNIT_TEST",
-})
-
 # League region enum names — mirrors the LeagueRegion enum in
 # shortest-path/src/main/java/shortestpath/leagues/LeagueRegion.java.
 # The plugin resolves `Region override` cells via
@@ -95,102 +86,6 @@ LEAGUE_REGIONS = frozenset({
     "KOUREND", "WILDERNESS", "MORYTANIA", "DESERT", "TIRANNWN",
     "MISTHALIN", "NEUTRAL",
 })
-
-# config_overrides keys — mirrors every case label of the switch in
-# DashboardScenarioRunner.applyConfigOverrides
-# (src/test/java/shortestpath/dashboard/DashboardScenarioRunner.java).
-# An unlisted key aborts the whole dataset run with
-# IllegalArgumentException, so the lint whitelists them up front.
-SCENARIO_CONFIG_KEYS = frozenset({
-    "avoidWilderness", "useAgilityShortcuts", "useGrappleShortcuts",
-    "useBoats", "useCanoes", "useCharterShips", "useShips",
-    "useFairyRings", "useGnomeGliders", "useHotAirBalloons",
-    "useMagicCarpets", "useMagicMushtrees", "useMinecarts",
-    "useQuetzals", "useSpiritTrees", "useTeleportationItems",
-    "useTeleportationLevers", "useTeleportationPortals",
-    "useTeleportationSpells", "useTeleportationSpellsHome",
-    "useTeleportationMinigames",
-    "useWildernessObelisks", "useSeasonalTransports",
-    "includeBankPath", "bypassVarbitChecks", "bypassVarPlayerChecks",
-    "currencyThreshold",
-    "calculationCutoff", "pathfinderBackend", "exactHeuristicWeight",
-    "useSailingMoves",
-    "usePoh", "usePohFairyRing",
-    "usePohSpiritTree", "useTeleportationPortalsPoh",
-    "usePohMountedItems", "usePohObelisk",
-    "costConsumableTeleportationItems",
-    "costNonConsumableTeleportationItems", "costAgilityShortcuts",
-    "costGrappleShortcuts", "costFairyRings", "costBoats",
-    "costCanoes", "costCharterShips", "costShips",
-    "costGnomeGliders", "costHotAirBalloons", "costMagicCarpets",
-    "costMagicMushtrees", "costMinecarts", "costQuetzals",
-    "costSpiritTrees", "costTeleportationLevers",
-    "costTeleportationPortals", "costTeleportationSpells",
-    "costTeleportationSpellsHome",
-    "costTeleportationMinigames", "costWildernessObelisks",
-    "costSeasonalTransports", "costBankVisit", "respawnPrifddinas",
-    "costQuetzalWhistle", "costTeleportationBoxes",
-    "builtTeleportationBoxes", "builtTeleportationPortalsPoh",
-    "pohJewelleryBoxTier", "unreachableTargetDistanceThreshold",
-    "collisionAwareBlockedTargets",
-    "unlockCanoeAxe", "unlockXericsHonour", "unlockDragontoothPassage",
-    "unlockMorUlRek",
-})
-
-# Optional-column cell grammars — mirrors the loader's parseItems /
-# parseIntMap / parseStringIntMap shapes (DashboardScenarioLoader).
-# A malformed cell aborts the whole dataset run with
-# IllegalArgumentException under ignoreFailures = true — no report.json
-# and a bare "missing or unreadable report" — so the lint catches it up
-# front.  skill_levels keys must be Skill enum names
-# (DashboardScenarioRunner calls Skill.valueOf on each key).
-SCENARIO_ITEMS_RE = re.compile(r"^\d+(:\d+)?(;\d+(:\d+)?)*$")
-SCENARIO_INT_MAP_RE = re.compile(r"^\d+=\d+(;\d+=\d+)*$")
-SCENARIO_SKILL_MAP_RE = re.compile(r"^[A-Z_]+=\d+(;[A-Z_]+=\d+)*$")
-# quests cells are `Quest Name=STATE` tokens — quest names carry spaces,
-# apostrophes, `&`, `-` and `.` but never `=`, `;` or `,` (the loader splits
-# on those), and STATE is a QuestState enum name.
-# Residual: the name token itself is not checked against the Quest.getName()
-# vocabulary (a ~200-entry enum in the runelite-api jar, not available to this
-# lint), so a typo'd quest name passes here and is only caught at load time —
-# parseQuestStateMap throws IllegalArgumentException and aborts the dataset run.
-SCENARIO_QUEST_MAP_RE = re.compile(
-    r"^[^=;,]+=(NOT_STARTED|IN_PROGRESS|FINISHED)"
-    r"(;[^=;,]+=(NOT_STARTED|IN_PROGRESS|FINISHED))*$")
-# speed cells are a sailing route's boat speed in tiles per tick, which the
-# loader reads with Double.parseDouble (e.g. 1.5).
-SCENARIO_SPEED_RE = re.compile(r"^\d+(\.\d+)?$")
-# boat cells name the hull a sailing route keeps clear; SailingBoats.hull
-# throws on any other name. Empty, or none, keeps just the boat's centre clear.
-SCENARIO_BOAT_RE = re.compile(r"^(raft|skiff|sloop|none)$")
-SCENARIO_COLUMN_GRAMMARS = {
-    "inventory": SCENARIO_ITEMS_RE,
-    "equipment": SCENARIO_ITEMS_RE,
-    "bank": SCENARIO_ITEMS_RE,
-    "varbits": SCENARIO_INT_MAP_RE,
-    "varplayers": SCENARIO_INT_MAP_RE,
-    "skill_levels": SCENARIO_SKILL_MAP_RE,
-    "quests": SCENARIO_QUEST_MAP_RE,
-    "speed": SCENARIO_SPEED_RE,
-    "boat": SCENARIO_BOAT_RE,
-}
-
-# Column names the dashboard scenario loader understands, across both
-# CSV grammars — mirrors the indexOf lookups in
-# DashboardScenarioLoader.parseRoutesCsv/parseClueCsv.  A column not
-# listed here is silently ignored by the loader (dropped data, the
-# same bug class as an unknown TSV header), so it is a finding.
-# ``source_file``/``source_line`` are tolerated provenance extras and
-# ``expect_reachable`` is reserved for the reachability column.
-SCENARIO_KNOWN_COLUMNS = frozenset({
-    "name", "category", "start_x", "start_y", "start_plane",
-    "x", "y", "plane", "preset", "teleports", "inventory",
-    "equipment", "bank", "varbits", "varplayers", "skill_levels",
-    "config_overrides", "expected_length", "minimum_length",
-    "expect_reachable", "clue_type", "source_file", "source_line",
-    "quests", "speed", "boat",
-})
-
 
 # Git exports these into hook environments (pre-push quarantine, worktree
 # overrides). Inherited by our git subprocesses they redirect even
@@ -221,25 +116,6 @@ def _git_ls_files(*pathspecs):
     if proc.returncode != 0:
         tail = (proc.stderr or "").strip().splitlines()
         sys.exit("git -C shortest-path ls-files failed: "
-                 + (tail[-1] if tail else f"exit {proc.returncode}"))
-    return [line for line in proc.stdout.splitlines() if line.strip()]
-
-
-def _git_ls_files_repo(*pathspecs):
-    """Committed tooling-repo files matching the given pathspecs.
-
-    Same contract as ``_git_ls_files`` but rooted at this repository
-    rather than the plugin submodule — used for the dashboard
-    datasets under ``src/test/resources/dashboard/``.  The leaf's
-    repo-level subprocess seam — monkeypatched in tests.
-    """
-    proc = subprocess.run(
-        ["git", "ls-files", *pathspecs],
-        cwd=REPO, capture_output=True, text=True, env=_git_env(),
-        timeout=GIT_TIMEOUT_SECONDS)
-    if proc.returncode != 0:
-        tail = (proc.stderr or "").strip().splitlines()
-        sys.exit("git ls-files failed: "
                  + (tail[-1] if tail else f"exit {proc.returncode}"))
     return [line for line in proc.stdout.splitlines() if line.strip()]
 
@@ -732,224 +608,6 @@ def check_destinations():
     return findings
 
 
-def _int_or_finding(findings, rel, lineno, col, cell):
-    """Append a finding unless ``cell`` parses as an integer."""
-    try:
-        int(cell)
-    except ValueError:
-        findings.append(
-            f"{rel}:{lineno}: non-integer {col} {cell!r}")
-
-
-def check_scenario_csv():
-    """Lint committed dashboard scenario CSVs against the loader grammar.
-
-    DashboardScenarioLoader splits rows on ``,`` with no quote
-    handling, so an embedded comma in ``name``/``category`` shifts
-    every later field; a header cell outside the known column set is
-    silently ignored (dropped data); an unknown ``preset`` or
-    ``config_overrides`` key aborts the whole dataset run with
-    ``IllegalArgumentException``.  Two grammars, dispatched on the
-    header: a ``clue_type`` column means the clue-step format
-    (requires ``clue_type`` + ``x``/``y``/``plane``), otherwise the
-    extended routes format (requires ``x``/``y``/``plane``).
-
-    Files are enumerated via ``git ls-files`` on the tooling repo —
-    never a filesystem glob — so a gitignored scratch CSV can never
-    leak into the gate.
-    """
-    findings = []
-    rels = _git_ls_files_repo("src/test/resources/dashboard")
-    for rel in sorted(r for r in rels if r.endswith(".csv")):
-        lines = (REPO / rel).read_text().splitlines()
-        if not lines:
-            continue
-        # The loader takes the first line as the header verbatim.
-        headers = [h.strip() for h in lines[0].split(",")]
-        for cell in headers:
-            if cell and cell not in SCENARIO_KNOWN_COLUMNS:
-                findings.append(
-                    f"{rel}:1: unknown header cell {cell!r}")
-        clue = "clue_type" in headers
-        required = (("clue_type", "x", "y", "plane") if clue
-                    else ("x", "y", "plane"))
-        idx = {h: i for i, h in enumerate(headers)}
-        missing = [c for c in required if c not in idx]
-        if missing:
-            findings.append(
-                f"{rel}:1: missing required column {missing[0]!r}")
-            continue
-        need = max(idx[c] for c in required) + 1
-        for lineno, line in enumerate(lines[1:], 2):
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.split(",")
-            if len(fields) > len(headers):
-                findings.append(
-                    f"{rel}:{lineno}: row has {len(fields)} fields "
-                    f"vs {len(headers)} headers (embedded comma)")
-                continue
-            if len(fields) < need:
-                findings.append(
-                    f"{rel}:{lineno}: row has {len(fields)} "
-                    f"fields, needs {need} to cover required "
-                    f"columns")
-                continue
-            for col in required:
-                cell = fields[idx[col]].strip()
-                if not cell:
-                    findings.append(
-                        f"{rel}:{lineno}: empty required column "
-                        f"{col!r}")
-                elif col != "clue_type":
-                    _int_or_finding(findings, rel, lineno, col, cell)
-            if clue:
-                continue
-            for col in ("start_x", "start_y", "start_plane",
-                        "expected_length", "minimum_length"):
-                i = idx.get(col, -1)
-                if 0 <= i < len(fields):
-                    cell = fields[i].strip()
-                    if cell:
-                        _int_or_finding(
-                            findings, rel, lineno, col, cell)
-            for col in ("preset", "teleports"):
-                i = idx.get(col, -1)
-                if 0 <= i < len(fields):
-                    cell = fields[i].strip()
-                    if cell and cell.upper() not in SCENARIO_PRESETS:
-                        findings.append(
-                            f"{rel}:{lineno}: unknown preset "
-                            f"{cell!r}")
-            i = idx.get("config_overrides", -1)
-            if 0 <= i < len(fields):
-                for token in fields[i].split(";"):
-                    token = token.strip()
-                    if not token:
-                        continue
-                    key, _, value = token.partition("=")
-                    key = key.strip()
-                    if key not in SCENARIO_CONFIG_KEYS:
-                        findings.append(
-                            f"{rel}:{lineno}: unknown "
-                            f"config_overrides key {key!r}")
-                    elif not value.strip():
-                        findings.append(
-                            f"{rel}:{lineno}: config_overrides "
-                            f"key {key!r} has an empty value")
-            for col, grammar in SCENARIO_COLUMN_GRAMMARS.items():
-                i = idx.get(col, -1)
-                if 0 <= i < len(fields):
-                    cell = fields[i].strip()
-                    if cell and not grammar.match(cell):
-                        findings.append(
-                            f"{rel}:{lineno}: {col} value {cell!r} "
-                            f"does not match its grammar")
-            i = idx.get("expect_reachable", -1)
-            if 0 <= i < len(fields):
-                cell = fields[i].strip()
-                if cell and cell.lower() not in ("true", "false"):
-                    findings.append(
-                        f"{rel}:{lineno}: expect_reachable "
-                        f"{cell!r} is not true/false")
-    return findings
-
-
-def check_scenario_var_gating():
-    """Advisory: scenario var stubs that can never gate a transport.
-
-    A ``varbits``/``varplayers`` cell whose ids appear in the committed
-    transports TSV ``Varbits``/``VarPlayers`` requirement columns is a
-    transport-gating stub — but it only reaches the gate when the row
-    also sets ``bypassVarbitChecks=false`` /
-    ``bypassVarPlayerChecks=false`` (both default to bypassed in the
-    harness).  A gating-id stub without the matching flag is silently
-    dead for transport gating, so the finding names the ids and notes
-    the stub may still feed direct client reads or always-enforced
-    destination requirements — varbit 4498 is legitimately dual-use,
-    which is why this tier is advisory rather than hard.
-
-    The corpus is built per transports file from that file's own
-    header — column order differs per file — and ``destinations/`` is
-    excluded even if the seam lists it: bank-destination requirements
-    are never bypassed, so stubs feeding them are never dead.  Both
-    enumerations go through the git seams, so an uncommitted scratch
-    TSV/CSV can never enter a finding.
-    """
-    varbit_corpus = set()
-    varp_corpus = set()
-    for rel in sorted(r for r in _git_ls_files(f"{RESOURCES}/transports")
-                      if r.endswith(".tsv")
-                      and r.startswith(f"{RESOURCES}/transports/")):
-        headers, _, rows = _parse_tsv(PLUGIN / rel)
-        if headers is None:
-            continue
-        for col, corpus in (("Varbits", varbit_corpus),
-                            ("VarPlayers", varp_corpus)):
-            if col not in headers:
-                continue
-            ci = headers.index(col)
-            for _lineno, fields in rows:
-                if ci >= len(fields):
-                    continue
-                for token in fields[ci].split(";"):
-                    m = re.match(r"(\d+)[=><&@]", token.strip())
-                    if m:
-                        corpus.add(int(m.group(1)))
-
-    findings = []
-    rels = _git_ls_files_repo("src/test/resources/dashboard")
-    for rel in sorted(r for r in rels if r.endswith(".csv")):
-        lines = (REPO / rel).read_text().splitlines()
-        if not lines:
-            continue
-        headers = [h.strip() for h in lines[0].split(",")]
-        idx = {h: i for i, h in enumerate(headers)}
-        config_i = idx.get("config_overrides", -1)
-        for lineno, line in enumerate(lines[1:], 2):
-            if not line.strip() or line.startswith("#"):
-                continue
-            fields = line.split(",")
-            config = {}
-            if 0 <= config_i < len(fields):
-                for token in fields[config_i].split(";"):
-                    key, _, value = token.partition("=")
-                    key = key.strip()
-                    if key:
-                        config[key] = value.strip()
-            for col, corpus, flag in (
-                    ("varbits", varbit_corpus, "bypassVarbitChecks"),
-                    ("varplayers", varp_corpus, "bypassVarPlayerChecks")):
-                i = idx.get(col, -1)
-                if not 0 <= i < len(fields):
-                    continue
-                stubbed = set()
-                for token in fields[i].split(";"):
-                    ident, _, _value = token.partition("=")
-                    ident = ident.strip()
-                    if ident.isdigit():
-                        stubbed.add(int(ident))
-                dead = stubbed & corpus
-                # Mirror the harness's Boolean.parseBoolean: the bypass
-                # stays on (checks disabled, stub dead for gating) only
-                # when the flag is absent or parses true — i.e. equals
-                # "true" case-insensitively. Every other value ("false",
-                # "0", "off", empty) disables the bypass and the stub is
-                # live for transport gating.
-                flag_value = config.get(flag)
-                checks_enabled = (flag_value is not None
-                                  and flag_value.lower() != "true")
-                if dead and not checks_enabled:
-                    findings.append(
-                        f"{rel}:{lineno}: {col} stub ids "
-                        f"{sorted(dead)} are transport-requirement "
-                        f"gated but {flag} is not false — stub is dead "
-                        f"for transport gating (it may still feed "
-                        f"direct client reads or destination "
-                        f"requirements)")
-    return findings
-
-
 # name -> check function returning a list of finding strings.
 CHECKS = {
     "tsv-structure": check_tsv_structure,
@@ -958,17 +616,14 @@ CHECKS = {
     "bbox": check_bbox,
     "regions": check_regions,
     "destinations": check_destinations,
-    "scenario-csv": check_scenario_csv,
     "region-override": check_region_override,
-    "scenario-var-gating": check_scenario_var_gating,
 }
 
 # Checks whose findings are reported but never move the exit code.
-ADVISORY_CHECKS = frozenset({"destinations", "scenario-var-gating"})
+ADVISORY_CHECKS = frozenset({"destinations"})
 
 # Section titles for advisory check output.
-SECTION_TITLES = {"destinations": "Destination walkability",
-                  "scenario-var-gating": "Scenario var gating bypass"}
+SECTION_TITLES = {"destinations": "Destination walkability"}
 
 
 def main(argv=None):

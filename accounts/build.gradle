@@ -1,0 +1,25 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    maven {
+        url = 'https://repo.runelite.net'
+        content {
+            includeGroupByRegex("net\\.runelite.*")
+        }
+    }
+    mavenCentral()
+}
+
+// Accounts depend only on the RuneLite API (the same version the tooling tests build against), not
+// on the plugin.
+dependencies {
+    api group: 'net.runelite', name: 'runelite-api', version: 'latest.release'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}

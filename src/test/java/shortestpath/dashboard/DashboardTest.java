@@ -1,20 +1,12 @@
 package shortestpath.dashboard;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.when;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,29 +14,19 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.EnumSet;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.Skill;
-import net.runelite.api.WorldType;
-import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.gameval.VarbitID;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import net.runelite.api.gameval.VarbitID;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;
-import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.ExactPathfinder;
-import shortestpath.pathfinder.ExactRoutingStaticProvider;
-import shortestpath.pathfinder.PathfinderBackend;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.PathfinderProfile;
-import shortestpath.pathfinder.PathStep;
-import shortestpath.pathfinder.ProfilingPathfinder;
-import shortestpath.pathfinder.Pathfinder;
-import shortestpath.pathfinder.TestPathfinderConfig;
+import shortestpath.profiles.CompiledAccount;
+import shortestpath.scenarios.ExpectedLengths;
+import shortestpath.scenarios.Observation;
+import shortestpath.scenarios.ScenarioRunner;
+import shortestpath.scenarios.Scenario;
+import shortestpath.scenarios.Suites;
 
 /**
  * Generic dashboard test harness.
@@ -58,24 +40,33 @@ import shortestpath.pathfinder.TestPathfinderConfig;
  * signal — the published bundle's {@code report.json} is the only pass/fail
  * surface.</p>
  *
- * <p>Routes CSV rows may set {@code expect_reachable=false} to assert the route
- * is <em>unreachable</em> (an intentional-failure scenario); absent or any other
- * value means expected reachable.</p>
+ * <p>A scenario may expect its route to be <em>unreachable</em> (an
+ * intentional-failure scenario, {@code .expectUnreachable()} or a route's
+ * {@code negativeProfiles}); the report records whether each run met its
+ * expectation ({@code Observation.check()}).</p>
  *
  * <h3>Gradle invocation</h3>
  * <pre>
  * ./gradlew dashboard
- *   -PdashboardDataset=/dashboard/unit-tests.csv
+ *   -PdashboardSuite=unit-tests
  *   -PdashboardBundle=unit-tests
  * </pre>
  *
  * <h3>System properties</h3>
  * <table>
  *   <tr><th>Property</th><th>Default</th></tr>
- *   <tr><td>{@code dashboard.dataset}</td><td>{@code /dashboard/routes.csv}</td></tr>
+ *   <tr><td>{@code dashboard.suite}</td><td>{@code routes} (see {@link Suites})</td></tr>
+ *   <tr><td>{@code dashboard.dataset}</td><td>unset; a route file
+ *       ({@link shortestpath.scenarios.Route}) to run instead of a suite</td></tr>
  *   <tr><td>{@code dashboard.bundleName}</td><td>{@code routes}</td></tr>
  *   <tr><td>{@code dashboard.title}</td><td>{@code Dashboard}</td></tr>
- *   <tr><td>{@code dashboard.subtitle}</td><td>dataset label</td></tr>
+ *   <tr><td>{@code dashboard.tier}</td><td>unset; run only scenarios tagged with this tier
+ *       (the canonical suite's {@code smoke}, {@code standard}, {@code full})</td></tr>
+ *   <tr><td>{@code dashboard.backend}</td><td>{@code legacy}; {@code exact} runs the exact
+ *       pathfinder (unprofiled)</td></tr>
+ *   <tr><td>{@code dashboard.filter}</td><td>unset; run only the scenarios whose name or
+ *       category contains it (ignoring case)</td></tr>
+ *   <tr><td>{@code dashboard.subtitle}</td><td>suite or file name</td></tr>
  *   <tr><td>{@code dashboard.profile}</td><td>auto — on for datasets up to
  *       {@value #PROFILE_AUTO_MAX_SCENARIOS} scenarios, off above; an explicit
  *       {@code true}/{@code false} always wins</td></tr>
@@ -89,20 +80,16 @@ import shortestpath.pathfinder.TestPathfinderConfig;
  */
 public class DashboardTest {
 
-    // Universal bank: every item id 0..24999 in qty 1000 – used for BANK preset runs.
-    private static final Item[] UNIVERSAL_BANK_ITEMS;
-
     static {
-        UNIVERSAL_BANK_ITEMS = new Item[25000];
-        for (int i = 0; i < 25000; i++) {
-            UNIVERSAL_BANK_ITEMS[i] = new Item(i, 1000);
-        }
         ((Logger) LoggerFactory.getLogger("shortestpath.transport.Transport")).setLevel(Level.OFF);
     }
 
+    private static final String SUITE_PROPERTY = "dashboard.suite";
     private static final String DATASET_PROPERTY = "dashboard.dataset";
+    private static final String FILTER_PROPERTY = "dashboard.filter";
+    private static final String TIER_PROPERTY = "dashboard.tier";
     private static final String BUNDLE_NAME_PROPERTY = DashboardBundlePublisher.BUNDLE_NAME_PROPERTY;
-    private static final String DEFAULT_DATASET = "/dashboard/routes.csv";
+    private static final String DEFAULT_SUITE = "routes";
     private static final int MAX_SCENARIOS = Integer.getInteger("reachability.maxTargets", 10000);
     /**
      * Profiling is auto-disabled above this scenario count unless
@@ -112,30 +99,11 @@ public class DashboardTest {
      */
     private static final int PROFILE_AUTO_MAX_SCENARIOS = 200;
 
-    private final DashboardScenarioLoader loader = new DashboardScenarioLoader();
     private final ProfilerReportWriter profilerReportWriter = new ProfilerReportWriter();
+    private final ScenarioRunner runner = new ScenarioRunner(
+        ScenarioRunner.Backend.parse(System.getProperty("dashboard.backend", "legacy")));
     private final PathfinderDashboardReportWriter reportWriter = new PathfinderDashboardReportWriter();
     private final DashboardBundlePublisher bundlePublisher = new DashboardBundlePublisher();
-    /**
-     * The exact backend's shared routing graph, built on first use by whichever
-     * worker hits an EXACT scenario. {@link ExactRoutingStaticProvider#get} is
-     * synchronized, so concurrent workers share one build.
-     */
-    private volatile ExactRoutingStaticProvider exactRoutingStatic;
-
-    private ExactRoutingStaticProvider exactRoutingStatic(TestPathfinderConfig config) {
-        ExactRoutingStaticProvider provider = exactRoutingStatic;
-        if (provider == null) {
-            synchronized (this) {
-                provider = exactRoutingStatic;
-                if (provider == null) {
-                    provider = new ExactRoutingStaticProvider(config::getMap);
-                    exactRoutingStatic = provider;
-                }
-            }
-        }
-        return provider;
-    }
 
     /** Null unless the plugin checkout has the experimental sailing search (see SailingRouteRunner). */
     private final SailingRouteRunner sailingRunner = SailingRouteRunner.find();
@@ -147,60 +115,6 @@ public class DashboardTest {
      * emitted in strictly increasing order for the tqdm progress hook.
      */
     private static final Object HEARTBEAT_LOCK = new Object();
-
-    /**
-     * Reset {@code client} and re-apply the baseline stubs every scenario
-     * starts from. Must run on the thread that will execute the scenario:
-     * the {@code getClientThread()} stub captures {@code Thread.currentThread()}
-     * at invocation time, which is what lets each worker pass the
-     * client-thread gate inside the pathfinder config refresh.
-     */
-    private static void stubClientBaseline(Client client) {
-        reset(client);
-        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
-        when(client.getClientThread()).thenReturn(Thread.currentThread());
-        when(client.getBoostedSkillLevel(any(Skill.class))).thenReturn(99);
-        when(client.getTotalLevel()).thenReturn(2277);
-        when(client.getVarbitValue(VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE)).thenReturn(1);
-        when(client.getVarbitValue(VarbitID.FAIRY2_QUEENCURE_QUEST)).thenReturn(100);
-        when(client.getWorldType()).thenReturn(EnumSet.noneOf(WorldType.class));
-        when(client.getItemContainer(InventoryID.INV)).thenReturn(null);
-        when(client.getItemContainer(InventoryID.WORN)).thenReturn(null);
-    }
-
-    /**
-     * Per-worker Mockito fixtures. {@code DashboardScenarioRunner.apply} mutates
-     * the passed {@link Client} (the baseline resets and re-stubs it per
-     * scenario), so a mock must never be shared across workers — each worker
-     * thread builds and owns its own set.
-     */
-    private static final class WorkerContext {
-        final Client client;
-        final Runnable clientBaseline;
-        final ItemContainer universalBankContainer;
-
-        WorkerContext(Client client, Runnable clientBaseline, ItemContainer universalBankContainer) {
-            this.client = client;
-            this.clientBaseline = clientBaseline;
-            this.universalBankContainer = universalBankContainer;
-        }
-    }
-
-    /**
-     * Build a worker's Mockito fixtures. MUST be invoked on the worker thread
-     * itself so the initial {@code getClientThread()} stub captures the worker,
-     * not the main thread.
-     */
-    private static WorkerContext newWorkerContext() {
-        Client client = mock(Client.class);
-        Runnable clientBaseline = () -> stubClientBaseline(client);
-        clientBaseline.run();
-
-        ItemContainer universalBankContainer = mock(ItemContainer.class);
-        when(universalBankContainer.getItems()).thenReturn(UNIVERSAL_BANK_ITEMS);
-
-        return new WorkerContext(client, clientBaseline, universalBankContainer);
-    }
 
     /**
      * Resolve the scenario worker count: the {@code dashboard.threads} system
@@ -217,22 +131,33 @@ public class DashboardTest {
 
     @Test
     public void run() throws IOException, InterruptedException {
-        String dataset = System.getProperty(DATASET_PROPERTY, DEFAULT_DATASET);
+        String file = System.getProperty(DATASET_PROPERTY, "");
+        String suite = file.isEmpty() ? System.getProperty(SUITE_PROPERTY, DEFAULT_SUITE) : null;
+        String dataset = suite != null ? suite : file;
         String profileProp = System.getProperty("dashboard.profile");
         String bundleName = System.getProperty(BUNDLE_NAME_PROPERTY, "routes");
         String reportTitle = System.getProperty("dashboard.title", "Dashboard");
         String reportSubtitle = System.getProperty("dashboard.subtitle", datasetLabel(dataset));
         Path siteRoot = bundlePublisher.getOutputRoot();
 
-        List<DashboardScenario> allScenarios = loadScenarios(dataset);
-        List<DashboardScenario> scenarios = allScenarios.subList(0, Math.min(MAX_SCENARIOS, allScenarios.size()));
+        List<Scenario> allScenarios = suite != null ? Suites.load(suite) : Suites.loadFile(Paths.get(file));
+        String tier = System.getProperty(TIER_PROPERTY, "");
+        if (!tier.isEmpty()) {
+            allScenarios = Suites.withTier(allScenarios, tier);
+        }
+        String filter = System.getProperty(FILTER_PROPERTY, "");
+        if (!filter.isEmpty()) {
+            allScenarios = Suites.filter(allScenarios, filter);
+        }
+        List<Scenario> scenarios = allScenarios.subList(0, Math.min(MAX_SCENARIOS, allScenarios.size()));
 
         int n = scenarios.size();
         // An explicit dashboard.profile always wins; unset means auto — profile
         // only datasets small enough that the instrumentation stays cheap.
-        boolean profile = profileProp != null
+        // The profiler instruments the legacy search only.
+        boolean profile = runner.getBackend() == ScenarioRunner.Backend.LEGACY && (profileProp != null
             ? Boolean.parseBoolean(profileProp)
-            : n <= PROFILE_AUTO_MAX_SCENARIOS;
+            : n <= PROFILE_AUTO_MAX_SCENARIOS);
         // The per-tile heatmap rides on the profiler's visit counting; it only
         // exists when profiling is on, and it is the dominant profiling
         // allocation, so it gets its own off switch.
@@ -242,8 +167,8 @@ public class DashboardTest {
         int workers = resolveWorkerCount(n);
         // Deliberately not an [i/N] heartbeat line — maintenance.py's progress
         // hook consumes anything matching that shape.
-        System.out.printf("Running %d scenario(s) on %d worker(s) [%s]%n", n, workers,
-            profile ? (heatmap ? "profiled, heatmap" : "profiled") : "unprofiled");
+        System.out.printf("Running %d scenario(s) on %d worker(s) [%s, %s]%n", n, workers,
+            runner.getBackend().id(), profile ? (heatmap ? "profiled, heatmap" : "profiled") : "unprofiled");
 
         // Indexed by scenario position so report.json's run list stays in
         // dataset order regardless of completion order. A null slot means the
@@ -314,16 +239,18 @@ public class DashboardTest {
         bundlePublisher.publishBundle(bundleName, report);
 
         String sourceResourcesDir = System.getProperty("dashboard.sourceResourcesDir");
-        if (sourceResourcesDir != null && dataset.startsWith("/")) {
-            Path csvPath = Paths.get(sourceResourcesDir).resolve(dataset.substring(1));
-            updateExpectedLengths(csvPath, capturedLengths);
-            System.out.println("Captured expected_length for " + capturedLengths.size()
-                + " route(s) in " + csvPath);
+        if (sourceResourcesDir != null && suite != null) {
+            Path lengthsFile = ExpectedLengths.file(Paths.get(sourceResourcesDir), suite);
+            // The whole suite, not just the scenarios a tier or filter selected: the rest keep
+            // their lengths.
+            ExpectedLengths.update(lengthsFile, Suites.load(suite), capturedLengths);
+            System.out.println("Captured expected lengths for " + capturedLengths.size()
+                + " route(s) in " + lengthsFile);
         }
 
         System.out.println("Dashboard run summary:");
         System.out.println(" - tested: " + scenarios.size() + "/" + allScenarios.size());
-        System.out.println(" - dataset: " + dataset);
+        System.out.println(" - " + (suite != null ? "suite: " : "dataset: ") + dataset);
 
         long unreachable = runs.stream().filter(r -> !r.reached).count();
         if (unreachable > 0) {
@@ -333,14 +260,13 @@ public class DashboardTest {
 
     /**
      * Worker loop: pull scenario indexes off the shared queue and run each
-     * scenario with this thread's own Mockito fixtures. Every per-scenario
-     * mutable input to {@link DashboardScenarioRunner#apply} lives in the
-     * worker's {@link WorkerContext}; everything shared (the scenario list,
+     * scenario. {@link Scenario#compile} builds a fresh client and
+     * config per scenario on this thread; everything shared (the scenario list,
      * the results array, the writers and publisher) is either immutable or
      * written under an index unique to this scenario.
      */
     private void runScenarioWorker(
-            List<DashboardScenario> scenarios,
+            List<Scenario> scenarios,
             PathfinderDashboardModels.RunRecord[] results,
             Map<String, Integer> capturedLengths,
             AtomicInteger nextIndex,
@@ -349,43 +275,19 @@ public class DashboardTest {
             String bundleName,
             boolean profile,
             boolean heatmap) {
-        WorkerContext ctx = newWorkerContext();
         int n = scenarios.size();
         for (int i = nextIndex.getAndIncrement(); i < n; i = nextIndex.getAndIncrement()) {
-            DashboardScenario scenario = scenarios.get(i);
+            Scenario scenario = scenarios.get(i);
             try {
-                DashboardScenarioRunner.ApplyResult applied = DashboardScenarioRunner.apply(
-                    scenario, ctx.client, ctx.clientBaseline, ctx.universalBankContainer);
-
-                // Default to the Grand Exchange bank when no explicit start is set (e.g. clue-step CSV rows)
-                int start = scenario.getStartPoint() != WorldPointUtil.UNDEFINED
-                    ? scenario.getStartPoint()
-                    : WorldPointUtil.packWorldPoint(3185, 3436, 0);
-                int end = scenario.getEndPoint();
+                CompiledAccount applied = scenario.compile();
                 String category = scenario.getCategory() != null && !scenario.getCategory().isEmpty()
                     ? scenario.getCategory()
                     : "dashboard";
 
-                PathfinderResult result;
-                PathfinderProfile profileData = null;
-                if (applied.dashboardConfig.pathfinderBackend() == PathfinderBackend.EXACT) {
-                    // ProfilingPathfinder instruments the legacy engine only;
-                    // exact searches always record unprofiled.
-                    ExactPathfinder exact = new ExactPathfinder(applied.pathfinderConfig,
-                        exactRoutingStatic(applied.pathfinderConfig), start, Set.of(end), null);
-                    exact.run();
-                    result = exact.getResult();
-                } else if (profile) {
-                    ProfilingPathfinder profiler = new ProfilingPathfinder(
-                        applied.pathfinderConfig, start, Set.of(end), heatmap);
-                    profiler.run();
-                    result = profiler.getResult();
-                    profileData = profiler.getProfile();
-                } else {
-                    Pathfinder pathfinder = new Pathfinder(applied.pathfinderConfig, start, Set.of(end));
-                    pathfinder.run();
-                    result = pathfinder.getResult();
-                }
+                Observation observation = runner.run(scenario, applied, !profile ? ScenarioRunner.Profiling.OFF
+                    : heatmap ? ScenarioRunner.Profiling.HEATMAP : ScenarioRunner.Profiling.ON);
+                PathfinderResult result = observation.getResult();
+                PathfinderProfile profileData = observation.getProfile();
 
                 if (result == null) {
                     synchronized (HEARTBEAT_LOCK) {
@@ -395,76 +297,48 @@ public class DashboardTest {
                     continue;
                 }
 
-                List<PathStep> path = result.getPathSteps();
-                int pathLength = path.size();
-                boolean reached = result.isReached();
+                int pathLength = observation.getPathLength();
+                boolean reached = observation.isReached();
                 if (reached) {
                     capturedLengths.put(scenario.getName(), pathLength);
                 }
-
-                // Evaluate assertions — the reachability expectation takes
-                // precedence over length assertions: an expect_reachable=true row
-                // that fails to reach fails here, and an expect_reachable=false row
-                // passes only when no path is found.
-                Boolean assertionPassed = null;
-                String assertionMessage = null;
+                Observation.Assertion assertion = observation.check();
+                Boolean assertionPassed = assertion.passed;
+                String assertionMessage = assertion.message;
                 boolean expectedReachable = scenario.isExpectedReachable();
-                OptionalInt expectedLength = scenario.getExpectedLength();
-                OptionalInt minimumLength = scenario.getMinimumLength();
-                if (reached != expectedReachable) {
-                    assertionPassed = false;
-                    assertionMessage = expectedReachable
-                        ? "Expected reachable but no path found"
-                        : "Expected unreachable but path found (" + pathLength + " steps)";
-                } else if (!expectedReachable) {
-                    assertionPassed = true;
-                    assertionMessage = "Expected unreachable";
-                } else if (expectedLength.isPresent()) {
-                    int expected = expectedLength.getAsInt();
-                    if (pathLength == expected) {
-                        assertionPassed = true;
-                    } else {
-                        assertionPassed = false;
-                        assertionMessage = "Expected path length " + expected + " but got " + pathLength;
-                    }
-                } else if (minimumLength.isPresent()) {
-                    int minimum = minimumLength.getAsInt();
-                    if (pathLength >= minimum) {
-                        assertionPassed = true;
-                    } else {
-                        assertionPassed = false;
-                        assertionMessage = "Expected minimum path length " + minimum + " but got " + pathLength;
-                    }
-                }
 
-                List<String> details = List.of(
+                List<String> details = new ArrayList<>(List.of(
                     "Dataset: " + datasetLabel(dataset),
-                    "Scenario: " + scenario.getName(),
-                    "Preset: " + scenario.getPreset(),
-                    "Expected reachable: " + expectedReachable);
+                    "Backend: " + runner.getBackend().id(),
+                    "Scenario: " + scenario.getName()));
+                if (scenario.getDescription() != null) {
+                    details.add("Route: " + scenario.getDescription());
+                }
+                details.add("Preset: " + scenario.getProfile().name());
+                details.add("Expected reachable: " + expectedReachable);
 
                 PathfinderDashboardModels.RunRecord run = reportWriter.createRunRecord(
                     scenario.getName(),
                     category,
                     details,
                     result,
-                    applied.pathfinderConfig,
+                    applied.getConfig(),
                     reached,
                     assertionPassed,
                     assertionMessage);
                 run.expectedReachable = expectedReachable;
 
-                DashboardRunMetadata.apply(run, scenario.getPreset(), applied.dashboardConfig,
-                    applied.lumbridgeDiaryEliteStub);
+                DashboardRunMetadata.apply(run, scenario.getProfile().name(), applied.getSettings(),
+                    applied.getClient().getVarbitValue(VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE));
 
                 if (profileData != null) {
                     profilerReportWriter.populateProfilerData(run, profileData);
                 }
-                // Rows with a speed also run the sailing search, drawn next to the normal path
+                // Sailing scenarios also run the sailing search, drawn next to the normal path
                 String sailingSummary = "";
                 if (scenario.getSailingSpeed().isPresent()) {
                     if (sailingRunner != null) {
-                        run.sailing = sailingRunner.run(applied.pathfinderConfig, scenario, path);
+                        run.sailing = sailingRunner.run(applied.getConfig(), scenario, result.getPathSteps());
                         sailingSummary = String.format("  | sailing %s %s: %s %d ticks, %d legs, %.0fms",
                             run.sailing.speed, run.sailing.boat.isEmpty() ? "(centre only)" : run.sailing.boat,
                             run.sailing.reached ? "\u2714" : "\u2716", run.sailing.ticks, run.sailing.legs,
@@ -514,63 +388,14 @@ public class DashboardTest {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private List<DashboardScenario> loadScenarios(String dataset) throws IOException {
-        if (dataset.startsWith("/")) {
-            return loader.loadFromResource(dataset);
-        }
-        return loader.loadFromCsv(Paths.get(dataset));
-    }
-
     private static String datasetLabel(String dataset) {
-        if (dataset.startsWith("/")) {
+        if (!dataset.contains("/") && !dataset.contains("\\")) {
             return dataset;
         }
         Path path = Paths.get(dataset);
         return path.getFileName() != null ? path.getFileName().toString() : dataset;
     }
 
-    private static void updateExpectedLengths(Path csvPath, Map<String, Integer> lengths)
-            throws IOException {
-        List<String> lines = Files.readAllLines(csvPath);
-        if (lines.isEmpty()) {
-            return;
-        }
-        String[] headers = lines.get(0).split(",", -1);
-        int nameIdx = -1;
-        int expectedLengthIdx = -1;
-        for (int i = 0; i < headers.length; i++) {
-            if ("name".equals(headers[i])) {
-                nameIdx = i;
-            }
-            if ("expected_length".equals(headers[i])) {
-                expectedLengthIdx = i;
-            }
-        }
-        if (nameIdx < 0 || expectedLengthIdx < 0) {
-            return;
-        }
-        List<String> updated = new ArrayList<>();
-        updated.add(lines.get(0));
-        for (int i = 1; i < lines.size(); i++) {
-            String line = lines.get(i);
-            String[] cols = line.split(",", -1);
-            if (nameIdx < cols.length) {
-                // The scenario loader trims names; the raw CSV cell must
-                // be trimmed too or a whitespace-padded name silently
-                // misses the write-back lookup.
-                Integer length = lengths.get(cols[nameIdx].trim());
-                if (length != null) {
-                    String[] expanded = cols.length > expectedLengthIdx
-                            ? cols
-                            : Arrays.copyOf(cols, expectedLengthIdx + 1);
-                    expanded[expectedLengthIdx] = String.valueOf(length);
-                    line = String.join(",", expanded);
-                }
-            }
-            updated.add(line);
-        }
-        Files.write(csvPath, updated);
-    }
 
     private static String formatBankEventsSummary(PathfinderDashboardModels.RunRecord run) {
         if (run.bankEvents == null || run.bankEvents.isEmpty()) {

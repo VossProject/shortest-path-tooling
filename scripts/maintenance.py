@@ -30,7 +30,7 @@ Subcommands:
                    sequence; ``--names-file`` adds the name-driven scans
     verify         run the compatibility gate: compileTestJava ->
                    submodule test -> dashboard sweep over every
-                   committed scenario CSV -> collision-map edge-diff
+                   committed scenario suite -> collision-map edge-diff
     validate       run the data-validation checks — deterministic hard
                    gate plus advisory drift/season tiers
 """
@@ -962,20 +962,22 @@ def scan_report(path: Path) -> List[str]:
 
 
 def dashboard_datasets() -> List[str]:
-    """Committed dashboard scenario CSV basenames, sorted.
+    """Every dashboard scenario suite name, sorted.
 
-    The sweep enumerates ``git ls-files`` — never the filesystem — so
-    gitignored scratch state (``debug.csv``) can never leak into the
-    gate, and newly committed datasets are picked up automatically.
+    Suites are defined in Java (``shortestpath.scenarios.Suites``);
+    ``./gradlew -q scenarioIndex`` prints them as JSON.  A failed or
+    unparseable listing returns no suites, which the sweep reports as a
+    broken gate.
     """
-    proc = run(["git", "ls-files", "src/test/resources/dashboard/"],
-               cwd=REPO, timeout=GIT_TIMEOUT_SECONDS)
-    # Only *.csv files are datasets — a committed README/.gitignore
-    # under dashboard/ must not become a phantom bundle.
-    return sorted(
-        Path(line).name
-        for line in (proc.stdout or "").splitlines()
-        if line.strip().endswith(".csv"))
+    proc = run(["./gradlew", "-q", "scenarioIndex"], cwd=REPO,
+               timeout=GRADLE_TIMEOUT_SECONDS)
+    if proc.returncode != 0:
+        return []
+    try:
+        index = json.loads((proc.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return []
+    return sorted(index) if isinstance(index, dict) else []
 
 
 _SCENARIO_PROGRESS = re.compile(r"^\s*\[\s*(\d+)\s*/\s*(\d+)\]")
@@ -1060,20 +1062,19 @@ def do_verify(args: argparse.Namespace) -> int:
         if not datasets:
             # An empty sweep is a broken gate, not a green one.
             failures.append(
-                "no committed dashboard datasets found via "
-                "git ls-files")
-        for idx, csv in enumerate(datasets, 1):
+                "no dashboard suites listed by ./gradlew scenarioIndex")
+        for idx, suite in enumerate(datasets, 1):
             argv = ["./gradlew", "dashboard",
-                    f"-PdashboardDataset=/dashboard/{csv}",
+                    f"-PdashboardSuite={suite}",
                     "-PdashboardProfile=false"]
             # Belt-and-braces over the slug auto-tagging — a renamed
-            # dataset would otherwise lose its overlay silently.
-            if csv.startswith("seasonal_"):
+            # suite would otherwise lose its overlay silently.
+            if suite.startswith("seasonal-"):
                 argv.append("-PdashboardSeasonal=true")
-            if csv.startswith("f2p_"):
+            if suite.startswith("f2p-"):
                 argv.append("-PdashboardF2p=true")
-            slug = Path(csv).stem.lower().replace("_", "-")
-            print(f"--- dataset {idx}/{len(datasets)}: {csv}",
+            slug = suite.lower().replace("_", "-")
+            print(f"--- suite {idx}/{len(datasets)}: {suite}",
                   flush=True)
             hook = _scenario_progress_hook(slug)
             run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
@@ -1175,10 +1176,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
 VALIDATE_HARD_CHECKS: Tuple[Tuple[str, str], ...] = (
     ("tsv-structure", "leaf"), ("collision-zip", "leaf"),
     ("walkability", "leaf"), ("bbox", "leaf"), ("regions", "leaf"),
-    ("scenario-csv", "leaf"), ("region-override", "leaf"),
+    ("region-override", "leaf"),
     ("freshness", "internal"))
 VALIDATE_ADVISORY_CHECKS: Tuple[Tuple[str, str], ...] = (
-    ("destinations", "leaf"), ("scenario-var-gating", "leaf"),
+    ("destinations", "leaf"),
     ("drift", "drift"), ("season", "season"))
 
 CACHES_JSON_URL = "https://archive.openrs2.org/caches.json"
@@ -1567,7 +1568,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     vf = sub.add_parser(
         "verify",
         help="Run the compatibility gate: compile -> submodule test "
-             "-> dashboard sweep over committed scenario CSVs -> "
+             "-> dashboard sweep over committed scenario suites -> "
              "collision-map edge-diff")
     vf.add_argument(
         "--skip-compile", action="store_true",
@@ -1610,9 +1611,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--skip-regions", action="store_true",
         help="Omit the generated leagues/regions.tsv consistency check")
     vd.add_argument(
-        "--skip-scenario-csv", action="store_true",
-        help="Omit the dashboard scenario CSV lint check")
-    vd.add_argument(
         "--skip-region-override", action="store_true",
         help="Omit the transport Region override enum check")
     vd.add_argument(
@@ -1622,9 +1620,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     vd.add_argument(
         "--skip-destinations", action="store_true",
         help="Omit the advisory destination-walkability check")
-    vd.add_argument(
-        "--skip-scenario-var-gating", action="store_true",
-        help="Omit the advisory scenario var-stub gating check")
     vd.add_argument(
         "--drift", action="store_true",
         help="Run the cache-backed transport-anchor drift detector "

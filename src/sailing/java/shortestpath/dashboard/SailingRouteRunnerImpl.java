@@ -6,21 +6,22 @@ import java.util.Set;
 import shortestpath.WorldPointUtil;
 import shortestpath.pathfinder.PathStep;
 import shortestpath.pathfinder.PathfinderResult;
-import shortestpath.pathfinder.TestPathfinderConfig;
+import shortestpath.pathfinder.PathfinderConfig;
 import shortestpath.pathfinder.sailing.BoatHull;
 import shortestpath.pathfinder.sailing.SailingMoves;
 import shortestpath.pathfinder.sailing.SailingPathfinder;
+import shortestpath.scenarios.Scenario;
 
 /** Searches a route with the sailing search and records what the dashboard draws of it. */
 public class SailingRouteRunnerImpl implements SailingRouteRunner {
     @Override
-    public PathfinderDashboardModels.SailingRun run(TestPathfinderConfig config, DashboardScenario scenario,
+    public PathfinderDashboardModels.SailingRun run(PathfinderConfig config, Scenario scenario,
         List<PathStep> normalPath) {
         double speed = scenario.getSailingSpeed().orElseThrow();
         SailingMoves moves = SailingMoves.forSpeed(speed);
         BoatHull hull = SailingBoats.hull(scenario.getBoat());
-        SailingPathfinder pathfinder = new SailingPathfinder(config, scenario.getStartPoint(),
-            Set.of(scenario.getEndPoint()), null, moves, hull);
+        SailingPathfinder pathfinder = new SailingPathfinder(config, scenario.getRouteStart(),
+            Set.of(scenario.getTarget()), null, moves, hull);
         pathfinder.run();
         PathfinderResult result = pathfinder.getResult();
 
@@ -38,8 +39,8 @@ public class SailingRouteRunnerImpl implements SailingRouteRunner {
         List<PathStep> path = result.getPathSteps();
         run.distance = SailingPaths.distance(path);
         // Up to where the normal path gets as close to the target as the sailing path stops
-        List<PathStep> normalToGap = SailingPaths.upToGap(normalPath, scenario.getEndPoint(),
-            SailingPaths.endGap(path, scenario.getEndPoint()));
+        List<PathStep> normalToGap = SailingPaths.upToGap(normalPath, scenario.getTarget(),
+            SailingPaths.endGap(path, scenario.getTarget()));
         run.normalDistance = SailingPaths.distance(normalToGap);
         run.normalLegs = SailingPaths.legs(normalToGap);
         run.normalTicks = SailingPaths.ticksToSail(normalToGap, moves);

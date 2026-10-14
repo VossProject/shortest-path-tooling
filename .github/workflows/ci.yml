@@ -38,6 +38,30 @@ jobs:
         run: ./gradlew compileTestJava --stacktrace
         shell: bash
 
+      - name: Test the account model
+        # The account compiler and the canonical accounts.
+        run: ./gradlew :accounts:test --stacktrace
+        shell: bash
+
+      - name: Check the scenario suites and profiles
+        # Loads every suite (Java and route data), compiles the Java suites' accounts, and
+        # tests the profiles, the runner's frontends and the CLI.
+        run: >-
+          ./gradlew :test --stacktrace
+          --tests 'shortestpath.scenarios.*' --tests 'shortestpath.profiles.*'
+          --tests 'shortestpath.benchmark.*' --tests 'shortestpath.route.*'
+          --tests 'shortestpath.dashboard.ConfigParityTest'
+        shell: bash
+
+      - name: Run a light benchmark through the adapter
+        # Runs benchmarkCanonical as shortest-path-benchmarks does (two cases, legacy and exact)
+        # and checks the output as the harness reads it, so we know the adapter still works for it.
+        # If you change the adapter's arguments, manifest format or output, update
+        # shortest-path-benchmarks to match (projects/shortest-path/run.sh, scripts/lib/benchlib.py,
+        # schemas/) and scripts/benchmark_smoke.py with it.
+        run: python3 scripts/benchmark_smoke.py
+        shell: bash
+
   validate:
     name: Validate data + Python tests
     runs-on: ubuntu-latest

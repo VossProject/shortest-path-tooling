@@ -32,10 +32,12 @@ via `settings.gradle`, so `testImplementation 'shortestpath:shortest-path'` reso
 
 | Path | Purpose |
 |---|---|
-| `src/test/java/shortestpath/dashboard/` | Dashboard test runner, scenario loading, report writing |
+| `src/test/java/shortestpath/dashboard/` | Dashboard test runner and report writing |
+| `src/test/java/shortestpath/scenarios/` | Scenario suites (Java) and the `Scenario` model |
+| `src/test/java/shortestpath/profiles/` | `Profiles`: every named profile (canonical accounts and dashboard presets) |
 | `src/test/java/shortestpath/pathfinder/` | `ProfilingPathfinder`, `PathfinderProfile` (test-only instrumented pathfinder) |
 | `src/test/java/shortestpath/dump/` | Cache dumpers |
-| `src/test/resources/dashboard/` | CSV datasets consumed by the dashboard tasks |
+| `src/test/resources/scenarios/` | Route data (`clue-locations.json`) and each suite's `expected-lengths/<suite>.json` |
 | `src/test/resources/reachability-dashboard/` | Static frontend assets (`index.html`, `app.js`, `profiler.js`, `styles.css`) |
 | `gradle/dashboards.gradle` | Gradle task definitions for all dashboard and capture tasks |
 | `gradle/cache-dumpers.gradle` | Gradle task definitions for cache dump tasks |
@@ -81,140 +83,61 @@ python -m http.server --directory build/reports/pathfinder-dashboard 8000
 # Then open: http://localhost:8000
 ```
 
-## CSV Dataset Format
+## Scenarios
 
-All dashboard datasets are CSV files under `src/test/resources/dashboard/`.
-The loader (`DashboardScenarioLoader`) auto-detects format from the header row.
+The dashboard runs scenario suites. Scenarios, profiles, suites and the route data format are
+described in [scenarios.md](scenarios.md); this page covers the dashboard itself.
 
-### Extended routes CSV (primary format)
+## Published site
 
-Header row must include `start_x` and `preset` (or the legacy alias `teleports`).
-
-```
-name,category,start_x,start_y,start_plane,x,y,plane,preset,inventory,equipment,bank,varbits,varplayers,skill_levels,config_overrides,expected_length,minimum_length,expect_reachable,quests
-```
-
-| Column | Required | Description |
-|---|---|---|
-| `name` | yes | Human-readable route label shown in the UI |
-| `category` | yes | Grouping label (e.g. `walk`, `teleport`, `fairy-ring`, `agility-shortcut`) |
-| `start_x`, `start_y`, `start_plane` | yes | Start tile world coordinates |
-| `x`, `y`, `plane` | yes | Target tile world coordinates |
-| `preset` | yes | Named pathfinder config preset (see [Presets](#presets)) |
-| `inventory` | no | `itemId:qty;itemId:qty` — items in inventory (qty defaults to 1) |
-| `equipment` | no | `itemId:qty;itemId:qty` — equipped items |
-| `bank` | no | `itemId:qty;itemId:qty` — items in bank |
-| `varbits` | no | `id=value;id=value` — stubs `Client.getVarbitValue(id)`; varbits are bit-packed slices of varplayer state |
-| `varplayers` | no | `id=value;id=value` — stubs `Client.getVarpValue(id)`, the raw varp. E.g. quest points are varp `101` (`VarPlayerID.QP`); varp `139` is `LEGENDSQUEST` progress — a common mix-up |
-| `skill_levels` | no | `SKILL_NAME=level;…` (e.g. `AGILITY=70;MAGIC=55`) |
-| `quests` | no | `Quest Name=STATE;…` — per-quest state overrides (see [Quests](#quests)) |
-| `config_overrides` | no | `settingName=value;…` — override specific `ShortestPathConfig` settings |
-| `expected_length` | no | Expected path length in tiles; fails the run if actual differs |
-| `minimum_length` | no | Minimum acceptable path length; fails if actual is shorter |
-| `expect_reachable` | no | `false` asserts the route is unreachable (an intentional-failure scenario); absent or `true` means expected reachable |
-| `speed` | no | Boat speed in tiles per tick (e.g. `1.5`); also runs the experimental sailing search (see [Sailing](#sailing)) |
-| `boat` | no | `raft`, `skiff` or `sloop`: the hull the sailing search keeps clear; empty keeps only the boat's centre clear |
-
-An empty column is equivalent to omitting it. Rows beginning with `#` are treated as comments.
-
-#### Variable stubs and the bypass flags
-
-`varbits` and `varplayers` stub two *different* client reads — `getVarbitValue` vs `getVarpValue` — and they interact with transport gating in a way that is easy to miss:
-
-- Transport TSVs under `transports/` carry separate `Varbits` and `VarPlayers` requirement columns, evaluated by `varbitChecks`/`varPlayerChecks` in `PathfinderConfig`.
-- The harness **bypasses both checks by default** (`bypassVarbitChecks=true`, `bypassVarPlayerChecks=true`), so a stubbed id only gates a transport when the row also sets the matching `config_overrides` key — `bypassVarbitChecks=false` or `bypassVarPlayerChecks=false`.
-- Example: the digsite rows in `routing-issues.csv` pair `varbits=3637=153` / `varbits=3637=0` with `bypassVarbitChecks=false` so the kudos varbit actually opens/closes the gate transport.
-- A stub whose id appears in a `Varbits`/`VarPlayers` requirement column but lacks the matching `bypass*Checks=false` is *dead for transport gating* — it may still feed direct client reads (e.g. the quest-points read of varp `101`) or destination requirements. The `scenario-var-gating` advisory check in `scripts/validate_data.py` reports exactly these rows.
-- Asymmetry: `destinations/game_features/bank.tsv` requirement columns (`Skills`/`Quests`/`Varbits`/`VarPlayers`) read the client directly and are **never bypassed** — scenario stubs always feed them, no flag needed.
-- Flipping a bypass flag off evaluates *every* requirement of that kind in the corpus against the stubs — unstubbed ids read Mockito's default `0`, so unrelated transports can gate off too. Re-capture `expected_length` with the `captureExpectedLengths` task after enabling a bypass on a row.
-
-#### Quests
-
-`quests` cells are `Quest Name=STATE;…` tokens. Names must match `Quest.getName()` exactly (spaces, apostrophes and `&` are fine; `=`/`;`/`,` never appear in quest names) and `STATE` is one of `NOT_STARTED`, `IN_PROGRESS`, `FINISHED`. The column defaults to all-quests-`FINISHED`, matching the historical harness behavior — overrides only ever narrow state, and only `FINISHED` satisfies a quest requirement. Unknown names, unknown states, and `=`-less tokens abort the dataset run with `IllegalArgumentException`.
-
-Quest states gate more than individual transports: `The Grand Tree=NOT_STARTED` disables the whole gnome-glider transport type, `Bone Voyage` gates all magic mushtrees, and `Tree Gnome Village` gates all spirit trees — plus quest requirements on `bank.tsv` destinations.
-
-#### Presets
-
-The `preset` column maps to a named `DashboardPresets` entry that configures the `PathfinderConfig`:
-
-| Preset | Description |
-|---|---|
-| `NONE` | No teleportation items |
-| `ALL` | All teleportation items enabled |
-| `BANK` | All teleportation items (bank mode, diary stub = not complete) |
-| `BANK_PERM` | Bank mode with non-consumable teleportation items (diary stub = not complete) |
-| `INVENTORY` | Inventory teleportation items only |
-| `INVENTORY_NON_CONSUMABLE` | Non-consumable inventory items only |
-| `SEASONAL` | Seasonal world — inventory items + seasonal transports, avoids wilderness |
-| `UNIT_TEST` | Exact Mockito defaults — reproduces `PathfinderTest` config precisely |
-
-Preset names are case-insensitive. The old column name `teleports` is accepted as an alias for `preset`.
-
-`config_overrides` can further override individual settings on top of a preset, e.g.:
-```
-useAgilityShortcuts=true;useTeleportationItems=INVENTORY_AND_BANK;includeBankPath=true
-```
-
-### Clue-step CSV format
-
-Has `clue_type`, `x`, `y`, `plane` columns. No start coordinate — the pathfinder sweeps from a default
-start position. Used by `clue_locations_full.csv`.
-
-### TSV format
-
-Tab-separated with `Description`, `X`, `Y`, `Plane` columns. Legacy format.
-
-### Available datasets
-
-| File | Description |
-|---|---|
-| `routes.csv` | General-purpose routes: walks, teleports, various transport types |
-| `unit-tests.csv` | Regression cases for specific logic (bank branching, gating, wilderness, spells) |
-| `quetzal_whistle_routes.csv` | Quetzal whistle and primo-quetzal transport routes |
-| `clue_locations_full.csv` | Full clue-step reachability corpus (clue-step format) |
-| `sailing_routes.csv` | Routes at sea for the experimental sailing search, including tight spots, per boat |
+The plugin's Dashboard Pages workflow (`Skretzo/shortest-path` `.github/workflows/dashboard-pages.yml`)
+checks out this repository's master and runs `./gradlew pagesSite`, which builds every published
+bundle into `build/reports/pathfinder-dashboard`. The bundles, their titles and their order are
+`pagesBundles` in `gradle/dashboards.gradle`; change them there, not in the workflow.
 
 ## Gradle Tasks
 
 ### `dashboard` (default task)
 
-Runs `DashboardTest` against one dataset and writes a bundle into the output site. Without a
-`dashboardDataset` it builds the default `routes.csv` and, through `sailingDashboard`, `sailing_routes.csv`
-as a second bundle. Profiling is **on** by default.
+Runs `DashboardTest` against one suite and writes a bundle into the output site.
 
 ```bash
 ./gradlew dashboard \
-  -PdashboardDataset=/dashboard/routes.csv \
+  -PdashboardSuite=routes \
   -PdashboardBundle=routes-profiled \
   -PdashboardTitle="Routes Profiled"
 ```
 
 | Property | Default | Description |
 |---|---|---|
-| `dashboardDataset` | `/dashboard/routes.csv` | Classpath resource path for the input CSV |
-| `dashboardBundle` | auto-derived from dataset filename + profile flag | Bundle directory name |
-| `dashboardTitle` | auto-derived from dataset stem | Title shown in the UI |
+| `dashboardSuite` | `routes` | The suite to run (`./gradlew -q scenarioIndex` lists them) |
+| `dashboardDataset` | *(empty)* | A route JSON file to run instead of a suite (routes without `profiles` run with `ALL`) |
+| `dashboardFilter` | *(empty)* | Run only the scenarios whose name or category contains it (ignoring case), e.g. `issue-140` |
+| `dashboardTier` | *(empty)* | Run only scenarios tagged with this tier, e.g. `canonical` with `smoke` |
+| `dashboardBackend` | `legacy` | `exact` runs the exact pathfinder (unprofiled); the bundle gets an `-exact` suffix and the title an `Exact` suffix |
+| `dashboardBundle` | auto-derived from the suite name + profile flag | Bundle directory name |
+| `dashboardTitle` | auto-derived from the suite name | Title shown in the UI |
 | `dashboardSubtitle` | *(empty)* | Subtitle shown in the UI |
-| `dashboardProfile` | `true` | Enable profiling (heatmaps, phase timings) |
+| `dashboardProfile` | auto (on up to 200 scenarios) | Enable profiling (heatmaps, phase timings) |
 
 The bundle name and title are auto-derived when not overridden. For example:
-- dataset `/dashboard/clue_locations_full.csv`, profiling on → bundle `clue-locations-full-profiled`, title `Clue Locations Full Profiled`
-- dataset `/dashboard/routes.csv`, profiling off → bundle `routes`, title `Routes`
+- suite `clue-locations-full`, profiling on → bundle `clue-locations-full-profiled`, title `Clue Locations Full Profiled`
+- suite `routes`, profiling off → bundle `routes`, title `Routes`
 
 To build without profiling (faster, no heatmaps):
 
 ```bash
-./gradlew dashboard -PdashboardProfile=false -PdashboardDataset=/dashboard/clue_locations_full.csv
+./gradlew dashboard -PdashboardProfile=false -PdashboardSuite=clue-locations-full
 ```
 
 ### `captureExpectedLengths`
 
-Like `dashboard` but writes actual path lengths back into the source CSV's `expected_length` column.
-Use this to bootstrap or refresh expected lengths after changing pathfinding behavior.
+Like `dashboard` but writes actual path lengths of reached scenarios into
+`src/test/resources/scenarios/expected-lengths/<suite>.json`. Use this to bootstrap or refresh
+expected lengths after changing pathfinding behavior.
 
 ```bash
-./gradlew captureExpectedLengths -PdashboardDataset=/dashboard/routes.csv
+./gradlew captureExpectedLengths -PdashboardSuite=routes
 ```
 
 ## Profiler
@@ -273,32 +196,17 @@ results to `Pathfinder` across multiple route types. It checks:
 
 When modifying `Pathfinder.java`'s search loop, run this test to confirm the profiler still mirrors it.
 
-## How To Choose A Dataset
+## How To Choose A Suite
 
-| Situation | Dataset / task |
+| Situation | Suite / task |
 |---|---|
-| "This destination should be reachable" | Add a row to `routes.csv` or `unit-tests.csv`, run `dashboard` |
-| Route quality, bank usage, transport choice, exact config control | `unit-tests.csv` with `UNIT_TEST` preset and `config_overrides` |
-| Broad sweep after changing core search behavior | `clue_locations_full.csv`, profiling off |
-| Quetzal whistle transport regressions | `quetzal_whistle_routes.csv` |
-| Performance analysis (where time is spent, queue sizes) | Any dataset with `dashboardProfile=true` |
-| Bootstrap or refresh expected path lengths | `captureExpectedLengths` task |
+| A new regression or an upstream issue | add a scenario ([scenarios.md](scenarios.md#common-changes)), run its suite with `-PdashboardFilter` |
+| Broad sweep after changing core search behavior | `clue-locations-full` or `canonical`, profiling off |
+| Legacy vs exact | the same suite with `-PdashboardBackend=exact` |
+| Performance analysis (where time is spent, queue sizes) | any suite with `dashboardProfile=true` |
+| Bootstrap or refresh expected path lengths | `captureExpectedLengths` |
 
 ## Suggested Workflow
-
-**For a reported unreachable destination:**
-
-1. Add a row to `src/test/resources/dashboard/routes.csv` with the start and target coordinates.
-2. Run `./gradlew dashboard -PdashboardDataset=/dashboard/routes.csv`.
-3. Serve the output and inspect the route in the dashboard.
-4. If the route should be verified on every run, add an `expected_length` value (use `captureExpectedLengths`).
-
-**For a routing regression (bank logic, transport gating, etc.):**
-
-1. Add a row to `src/test/resources/dashboard/unit-tests.csv` with `preset=UNIT_TEST` and precise `config_overrides`.
-2. Set `expected_length` (and optionally `minimum_length`) for the assertion.
-3. Run `./gradlew dashboard -PdashboardDataset=/dashboard/unit-tests.csv`.
-4. Inspect the route and confirm the path length assertion matches the intended behavior.
 
 **For a performance investigation:**
 
@@ -333,7 +241,6 @@ Helper scripts in `scripts/`:
 | `compute_changed_coordinates.sh` | Diff coordinate changes between branches |
 | `diff_coordinate_json.py` | Compare coordinate JSON files |
 | `dump_transport_coordinates.py` | Extract transport coordinates from TSV files |
-| `gen_clue_csv.py` | Generate the clue locations CSV from source data |
 
 ## Implementation Split
 
@@ -352,13 +259,14 @@ compiled when that checkout has the sailing search.
 
 ### Sailing view
 
-Rows with a `speed` also run the sailing search from the same start, and the dashboard draws it in blue next
+Scenarios with a sailing speed (`.sailing(speed, boat)`, the `sailing-routes` suite in
+`SailingRouteScenarios`) also run the sailing search from the same start, and the dashboard draws it in blue next
 to the normal path: the path, the boat's hull at each turn (facing the leg that leaves it) and the area the
 hull sweeps along each leg, which is what the search keeps clear. Turn on the **Collision map** layer to see
 the blocked tiles, and **Sailing hull** to hide the hull. A card compares the two searches.
 
-`./gradlew dashboard` builds `sailing_routes.csv` as its own bundle along with the default routes, unless it's
-given a `dashboardDataset`; `sailingDashboard` builds just that bundle. Without a plugin checkout that has the
+`./gradlew dashboard` builds the `sailing-routes` suite as its own bundle along with the default routes, unless
+it's given a `dashboardSuite` or `dashboardDataset`; `sailingDashboard` builds just that bundle. Without a plugin checkout that has the
 sailing search, the sailing routes show only the normal path.
 
 ```bash
@@ -369,14 +277,14 @@ Hulls come from the game's bounds for each boat (`SailingBoats`), sitting on the
 
 ### Sailing benchmark
 
-`sailingBenchmark` runs each route in a dataset (default `sailing_routes.csv`; rows with the same start and
-target are one route) with the existing search, then with the sailing search at each speed, keeping only the
+`sailingBenchmark` runs each route in a suite (default `sailing-routes`; scenarios with the same start and
+target are one route), with the player on a boat, with the existing search, then with the sailing search at each speed, keeping only the
 boat's centre clear and then each boat's hull. Each search runs a few times untimed to warm up, then several
 times timed, taking turns. It reports the median and fastest search times (as the plugin's debug panel
 measures them), nodes checked and the path found, per route and in total, to
-`build/reports/sailing-benchmark/<dataset>.md` and `.json`.
+`build/reports/sailing-benchmark/<suite>.md` and `.json`.
 
-The report starts by comparing the paths themselves for each row, with the row's own boat and speed: the
+The report starts by comparing the paths themselves for each scenario, with its own boat and speed: the
 existing path and the sailing path's length in tiles, straight legs, and ticks. The existing path's ticks
 are about how long the boat takes to sail it holding the straight or diagonal heading of each step
 (`SailingPaths.ticksToSail`). A sailing path with a hull stops as close to the target as the hull fits, so
@@ -390,7 +298,7 @@ dashboard's sailing card shows the same comparison.
 
 | Property | Default | Description |
 |---|---|---|
-| `sailingBenchmarkDataset` | `/dashboard/sailing_routes.csv` | Routes to run |
+| `sailingBenchmarkSuite` | `sailing-routes` | Scenario suite to run |
 | `sailingBenchmarkSpeeds` | `1.5,3.0` | Boat speeds, in tiles per tick |
 | `sailingBenchmarkBoats` | `none,raft,skiff,sloop` | Hulls to keep clear (`none` keeps only the centre clear) |
 | `sailingBenchmarkWarmup` | `2` | Untimed runs of each search first |

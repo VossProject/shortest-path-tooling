@@ -1,10 +1,5 @@
 package shortestpath.dashboard;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.when;
-
 import com.google.gson.GsonBuilder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,22 +7,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.Skill;
-import net.runelite.api.WorldType;
-import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import org.junit.Assume;
-import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;
 import shortestpath.WorldPointUtil;
@@ -38,15 +24,19 @@ import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.sailing.BoatHull;
 import shortestpath.pathfinder.sailing.SailingMoves;
 import shortestpath.pathfinder.sailing.SailingPathfinder;
+import shortestpath.profiles.CompiledAccount;
+import shortestpath.profiles.Setup;
+import shortestpath.scenarios.Scenario;
+import shortestpath.scenarios.Suites;
 
 /**
  * Times the experimental sailing search against the existing search on routes at sea.
  *
- * <p>Each route in the dataset runs with the existing search (the path the plugin draws in red while
+ * <p>Each route in the suite runs with the existing search (the path the plugin draws in red while
  * sailing), then with the sailing search (the game's 16 boat headings) at each speed, first keeping only the
- * boat's centre clear and then each boat's whole hull. The rows' own {@code speed} and {@code boat} columns
- * are ignored; the searches to compare come from the properties below. Rows with the same start and target
- * are one route, named after the first of them without a trailing note in brackets such as "(sloop)".</p>
+ * boat's centre clear and then each boat's whole hull. The scenarios' own sailing speed and boat are ignored;
+ * the searches to compare come from the properties below. Scenarios with the same start and target are one route,
+ * named after the first of them without a trailing note in brackets such as "(sloop)".</p>
  *
  * <p>The player counts as on a boat, as they are whenever the plugin runs the sailing search, so neither search
  * uses teleports. Off a boat the existing search would spread out from every teleport's destination as well, and
@@ -56,7 +46,7 @@ import shortestpath.pathfinder.sailing.SailingPathfinder;
  * so noise spreads evenly. The report gives the median and fastest search times (as the plugin's debug panel
  * measures them), the nodes checked, and the path each search found.</p>
  *
- * <p>It also compares the paths themselves, for each row with its own {@code speed} and {@code boat}: how far
+ * <p>It also compares the paths themselves, for each scenario with its own sailing speed and boat: how far
  * the existing path and the sailing path go, their straight legs, and how many ticks the boat takes to sail
  * each (see {@link SailingPaths#ticksToSail} for the existing path).</p>
  *
@@ -68,7 +58,7 @@ import shortestpath.pathfinder.sailing.SailingPathfinder;
  * <h3>System properties</h3>
  * <table>
  *   <tr><th>Property</th><th>Default</th></tr>
- *   <tr><td>{@code sailingBenchmark.dataset}</td><td>{@code /dashboard/sailing_routes.csv}</td></tr>
+ *   <tr><td>{@code sailingBenchmark.suite}</td><td>{@code sailing-routes}</td></tr>
  *   <tr><td>{@code sailingBenchmark.speeds}</td><td>{@code 1.5,3.0}</td></tr>
  *   <tr><td>{@code sailingBenchmark.boats}</td><td>{@code none,raft,skiff,sloop}</td></tr>
  *   <tr><td>{@code sailingBenchmark.warmup}</td><td>{@code 2}</td></tr>
@@ -81,12 +71,6 @@ public class SailingBenchmarkTest {
     static {
         ((Logger) LoggerFactory.getLogger("shortestpath.transport.Transport")).setLevel(Level.OFF);
     }
-
-    private final DashboardScenarioLoader loader = new DashboardScenarioLoader();
-
-    private Client client;
-    private ItemContainer bank;
-    private Runnable clientBaseline;
 
     /** One way of searching a route: the existing search, or the sailing search at a speed with a boat's hull. */
     private static final class Search {
@@ -150,33 +134,21 @@ public class SailingBenchmarkTest {
         double sailingEndGap;
     }
 
-    @Before
-    public void setUp() {
-        client = mock(Client.class);
-        bank = mock(ItemContainer.class);
-        when(bank.getItems()).thenReturn(new Item[0]);
-        clientBaseline = () -> {
-            reset(client);
-            when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
-            when(client.getClientThread()).thenReturn(Thread.currentThread());
-            when(client.getBoostedSkillLevel(any(Skill.class))).thenReturn(99);
-            when(client.getTotalLevel()).thenReturn(2277);
-            when(client.getVarbitValue(VarbitID.LUMBRIDGE_DIARY_ELITE_COMPLETE)).thenReturn(1);
-            when(client.getVarbitValue(VarbitID.FAIRY2_QUEENCURE_QUEST)).thenReturn(100);
-            // On a boat, which turns teleports off for every search, as in game while sailing
-            when(client.getVarbitValue(VarbitID.SAILING_BOARDED_BOAT)).thenReturn(1);
-            when(client.getWorldType()).thenReturn(EnumSet.noneOf(WorldType.class));
-            when(client.getItemContainer(InventoryID.INV)).thenReturn(null);
-            when(client.getItemContainer(InventoryID.WORN)).thenReturn(null);
-        };
-        clientBaseline.run();
+    /**
+     * The scenario's account on a boat, which turns teleports off for every search, as in game while sailing.
+     * Compiled on the calling thread, which runs the searches.
+     */
+    private static CompiledAccount onBoat(Scenario scenario) {
+        Setup setup = scenario.setup();
+        setup.account.varbit(VarbitID.SAILING_BOARDED_BOAT, 1);
+        return setup.compile();
     }
 
     @Test
     public void run() throws IOException {
         Assume.assumeTrue("Run with ./gradlew sailingBenchmark", Boolean.getBoolean("sailingBenchmark.run"));
 
-        String dataset = System.getProperty("sailingBenchmark.dataset", "/dashboard/sailing_routes.csv");
+        String suite = System.getProperty("sailingBenchmark.suite", "sailing-routes");
         int warmup = Integer.getInteger("sailingBenchmark.warmup", 2);
         int rounds = Integer.getInteger("sailingBenchmark.rounds", 5);
         Path outputDir = Paths.get(System.getProperty("sailingBenchmark.outputDir", "build/reports/sailing-benchmark"));
@@ -184,16 +156,14 @@ public class SailingBenchmarkTest {
             System.getProperty("sailingBenchmark.speeds", "1.5,3.0"),
             System.getProperty("sailingBenchmark.boats", "none,raft,skiff,sloop"));
 
-        List<DashboardScenario> rows = dataset.startsWith("/")
-            ? loader.loadFromResource(dataset)
-            : loader.loadFromCsv(Paths.get(dataset));
-        List<DashboardScenario> routes = distinctRoutes(rows);
+        List<Scenario> rows = Suites.load(suite);
+        List<Scenario> routes = distinctRoutes(rows);
         System.out.printf("Sailing benchmark: %d routes x %d searches, %d warm-up and %d timed runs each%n%n",
             routes.size(), searches.size(), warmup, rounds);
 
         List<Result> results = new ArrayList<>();
-        for (DashboardScenario route : routes) {
-            DashboardScenarioRunner.ApplyResult applied = DashboardScenarioRunner.apply(route, client, clientBaseline, bank);
+        for (Scenario route : routes) {
+            CompiledAccount applied = onBoat(route);
             List<Result> routeResults = new ArrayList<>();
             for (Search search : searches) {
                 Result result = new Result();
@@ -232,7 +202,7 @@ public class SailingBenchmarkTest {
         }
 
         List<Comparison> comparisons = new ArrayList<>();
-        for (DashboardScenario row : rows) {
+        for (Scenario row : rows) {
             if (row.getSailingSpeed().isPresent()) {
                 comparisons.add(compare(row));
             }
@@ -248,7 +218,7 @@ public class SailingBenchmarkTest {
         System.out.println(comparisonTable(comparisons));
 
         Files.createDirectories(outputDir);
-        String stem = datasetStem(dataset);
+        String stem = suite;
         Files.write(outputDir.resolve(stem + ".md"), report.getBytes(StandardCharsets.UTF_8));
         java.util.Map<String, Object> json = new java.util.LinkedHashMap<>();
         json.put("searches", results);
@@ -258,14 +228,14 @@ public class SailingBenchmarkTest {
         System.out.println("Written to " + outputDir.toAbsolutePath().resolve(stem + ".md"));
     }
 
-    // Searches a row with the existing search and with the sailing search at the row's speed and boat
-    private Comparison compare(DashboardScenario row) {
-        DashboardScenarioRunner.ApplyResult applied = DashboardScenarioRunner.apply(row, client, clientBaseline, bank);
+    // Searches a scenario with the existing search and with the sailing search at its own speed and boat
+    private Comparison compare(Scenario row) {
+        CompiledAccount applied = onBoat(row);
         SailingMoves moves = SailingMoves.forSpeed(row.getSailingSpeed().getAsDouble());
-        Pathfinder normal = new Pathfinder(applied.pathfinderConfig, row.getStartPoint(), Set.of(row.getEndPoint()));
+        Pathfinder normal = new Pathfinder(applied.getConfig(), row.getRouteStart(), Set.of(row.getTarget()));
         normal.run();
-        SailingPathfinder sailing = new SailingPathfinder(applied.pathfinderConfig, row.getStartPoint(),
-            Set.of(row.getEndPoint()), null, moves, SailingBoats.hull(row.getBoat()));
+        SailingPathfinder sailing = new SailingPathfinder(applied.getConfig(), row.getRouteStart(),
+            Set.of(row.getTarget()), null, moves, SailingBoats.hull(row.getBoat()));
         sailing.run();
 
         Comparison comparison = new Comparison();
@@ -277,21 +247,21 @@ public class SailingBenchmarkTest {
         comparison.sailingDistance = SailingPaths.distance(sailingPath);
         comparison.sailingTicks = SailingPaths.sailingTicks(sailingPath, moves);
         comparison.sailingLegs = SailingPaths.legs(sailingPath);
-        comparison.sailingEndGap = SailingPaths.endGap(sailingPath, row.getEndPoint());
+        comparison.sailingEndGap = SailingPaths.endGap(sailingPath, row.getTarget());
 
         List<PathStep> fullNormalPath = normal.getResult().getPathSteps();
-        List<PathStep> normalPath = SailingPaths.upToGap(fullNormalPath, row.getEndPoint(), comparison.sailingEndGap);
+        List<PathStep> normalPath = SailingPaths.upToGap(fullNormalPath, row.getTarget(), comparison.sailingEndGap);
         comparison.normalReached = normal.getResult().isReached();
         comparison.normalDistance = SailingPaths.distance(normalPath);
         comparison.normalTicks = SailingPaths.ticksToSail(normalPath, moves);
         comparison.normalLegs = SailingPaths.legs(normalPath);
-        comparison.normalEndGap = SailingPaths.endGap(normalPath, row.getEndPoint());
+        comparison.normalEndGap = SailingPaths.endGap(normalPath, row.getTarget());
         comparison.normalFullDistance = SailingPaths.distance(fullNormalPath);
         comparison.normalFullTicks = SailingPaths.ticksToSail(fullNormalPath, moves);
         comparison.normalSteps = normalPath.size() - 1;
         BoatHull hull = SailingBoats.hull(row.getBoat());
         if (hull != null) {
-            comparison.normalCollisions = SailingPaths.collisions(normalPath, hull, applied.pathfinderConfig.getMap());
+            comparison.normalCollisions = SailingPaths.collisions(normalPath, hull, applied.getConfig().getMap());
         }
         return comparison;
     }
@@ -317,26 +287,26 @@ public class SailingBenchmarkTest {
     }
 
     // One row per start and target
-    private static List<DashboardScenario> distinctRoutes(List<DashboardScenario> rows) {
-        List<DashboardScenario> routes = new ArrayList<>();
+    private static List<Scenario> distinctRoutes(List<Scenario> rows) {
+        List<Scenario> routes = new ArrayList<>();
         Set<Long> seen = new java.util.HashSet<>();
-        for (DashboardScenario row : rows) {
-            if (seen.add(((long) row.getStartPoint() << 32) | (row.getEndPoint() & 0xFFFFFFFFL))) {
+        for (Scenario row : rows) {
+            if (seen.add(((long) row.getRouteStart() << 32) | (row.getTarget() & 0xFFFFFFFFL))) {
                 routes.add(row);
             }
         }
         return routes;
     }
 
-    private static String routeName(DashboardScenario route) {
+    private static String routeName(Scenario route) {
         return route.getName().replaceFirst("\\s*\\([^)]*\\)$", "");
     }
 
-    private static ActiveSearch searchOnce(DashboardScenarioRunner.ApplyResult applied, DashboardScenario route, Search search) {
+    private static ActiveSearch searchOnce(CompiledAccount applied, Scenario route, Search search) {
         ActiveSearch pathfinder = search.isSailing()
-            ? new SailingPathfinder(applied.pathfinderConfig, route.getStartPoint(), Set.of(route.getEndPoint()), null,
+            ? new SailingPathfinder(applied.getConfig(), route.getRouteStart(), Set.of(route.getTarget()), null,
                 SailingMoves.forSpeed(search.speed), SailingBoats.hull(search.boat))
-            : new Pathfinder(applied.pathfinderConfig, route.getStartPoint(), Set.of(route.getEndPoint()));
+            : new Pathfinder(applied.getConfig(), route.getRouteStart(), Set.of(route.getTarget()));
         pathfinder.run();
         return pathfinder;
     }
@@ -415,9 +385,9 @@ public class SailingBenchmarkTest {
         return table.toString();
     }
 
-    private static List<String> routeTables(List<DashboardScenario> routes, List<Result> results) {
+    private static List<String> routeTables(List<Scenario> routes, List<Result> results) {
         List<String> tables = new ArrayList<>();
-        for (DashboardScenario route : routes) {
+        for (Scenario route : routes) {
             List<Result> mine = new ArrayList<>();
             for (Result result : results) {
                 if (result.route.equals(routeName(route))) {
@@ -451,10 +421,5 @@ public class SailingBenchmarkTest {
         double[] sorted = values.stream().mapToDouble(Double::doubleValue).sorted().toArray();
         int middle = sorted.length / 2;
         return sorted.length % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-    }
-
-    private static String datasetStem(String dataset) {
-        String name = Paths.get(dataset).getFileName().toString();
-        return name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
     }
 }
