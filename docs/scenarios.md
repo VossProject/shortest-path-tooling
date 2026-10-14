@@ -12,7 +12,7 @@ code. This page is the model; the dashboard UI is in [dashboard-design.md](dashb
 | **Profile** | A named starting point: an account plus plugin settings. Knows nothing about routes | `shortestpath.profiles.Profiles` |
 | **Scenario** | What to run and what counts as correct: a route (start, target, transports allowed) + a profile + account and settings overrides + an expectation. Runs nothing itself | `shortestpath.scenarios.Scenario` |
 | **Suite** | A named list of scenarios, some tagged with tiers | `shortestpath.scenarios.Suites` |
-| **Runner** | The only code that calls a pathfinder: runs a scenario on the legacy or exact backend (and the exact backend's session modes) and returns an `Observation` | `shortestpath.scenarios.ScenarioRunner` |
+| **Runner** | The only code that calls a pathfinder: runs a scenario on the legacy or A* backend (and the A* backend's session modes) and returns an `Observation` | `shortestpath.scenarios.ScenarioRunner` |
 | **Observation** | One run's result. `isReached()` and `check()` (reachability, minimum length, exact expected length) are the only definitions of *reached* and *correct* | `shortestpath.scenarios.Observation` |
 
 **Profiles.** The canonical accounts `early`, `mid`, `end`, `maxed` are defined in
@@ -131,7 +131,7 @@ The three runners select scenarios the same way and run them through `ScenarioRu
 
 ```bash
 ./gradlew route -ProuteSuite=routing-issues -ProuteScenario="#140) usable"     # any suite; name or unique part
-./gradlew route -ProuteSuite=canonical -ProuteScenario=gps-natural-0012/maxed -ProuteArgs="--algorithm exact --json"
+./gradlew route -ProuteSuite=canonical -ProuteScenario=gps-natural-0012/maxed -ProuteArgs="--algorithm astar --json"
 ./gradlew route -ProuteSuite=canonical -ProuteArgs=--list
 ./gradlew route -ProuteArgs="gps-natural-0012 maxed"                          # = canonical gps-natural-0012/maxed
 ./gradlew route -ProuteArgs="UNIT_TEST 3222 3218 0 3105 3251 0 --json"         # coordinates with any profile
@@ -144,14 +144,14 @@ The argument forms and JSON fields are an agent-facing interface; keep them stab
 ```bash
 ./gradlew dashboard -PdashboardSuite=routing-issues
 ./gradlew dashboard -PdashboardSuite=routing-issues -PdashboardFilter=issue-140   # name or category
-./gradlew dashboard -PdashboardSuite=canonical -PdashboardTier=smoke -PdashboardBackend=exact
+./gradlew dashboard -PdashboardSuite=canonical -PdashboardTier=smoke -PdashboardBackend=astar
 ./gradlew dashboard -PdashboardDataset=my-routes.json                             # an ad-hoc route file (ALL)
 ./gradlew captureExpectedLengths -PdashboardSuite=routes [-PdashboardFilter=...]
 ```
 
 **Benchmark adapter** — `./gradlew benchmarkCanonical --args="--manifest M --output OUT"`,
 called by shortest-path-benchmarks. Each manifest case (`route_id`, `profile`) is the `canonical`
-scenario `<route_id>/<profile>`, with the routes of this checkout's `corpus/` (there is no `--corpus`); the adapter adds the synthetic clock, warmup, exact-session modes
+scenario `<route_id>/<profile>`, with the routes of this checkout's `corpus/` (there is no `--corpus`); the adapter adds the synthetic clock, warmup, A* session modes
 (`cold`/`account`/`target`) and timings, and writes the protocol-v1 envelope.
 
 The adapter's routes and accounts are both this checkout's (`corpus/` and `accounts/`; there is no
@@ -179,8 +179,8 @@ maps scenario name to path length (steps).
 |---|---|---|
 | `:accounts:test` | no | the account compiler and the canonical accounts |
 | `ScenariosTest`, `CanonicalCorpusTest`, `ProfilesTest`, `ConfigParityTest` | no | every suite loads and compiles its accounts; names are unique; expected-length files name real scenarios; routes are well formed; profiles and overrides reach the pathfinder config; every plugin setting has a `PluginSettings` twin |
-| `RouteCliTest`, `BenchmarkMainTest` | a few canonical routes, legacy and exact | the CLI's forms and the benchmark adapter agree; manifest validation; exact session modes; walking-only routes |
-| `scripts/benchmark_smoke.py` | two canonical cases, legacy and exact | `benchmarkCanonical` run as shortest-path-benchmarks runs it, and its output as the harness reads it (keep the two repositories in step) |
+| `RouteCliTest`, `BenchmarkMainTest` | a few canonical routes, legacy and A* | the CLI's forms and the benchmark adapter agree; manifest validation; A* session modes; walking-only routes |
+| `scripts/benchmark_smoke.py` | two canonical cases, legacy and A* | `benchmarkCanonical` run as shortest-path-benchmarks runs it, and its output as the harness reads it (keep the two repositories in step) |
 | Python `tests/`, `maintenance.py validate` | no | the scripts, and the plugin's committed data |
 
 No CI test runs a whole suite against its expectations (reachability, minimum and exact lengths): that is

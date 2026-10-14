@@ -62,7 +62,7 @@ import shortestpath.scenarios.Suites;
  *   <tr><td>{@code dashboard.title}</td><td>{@code Dashboard}</td></tr>
  *   <tr><td>{@code dashboard.tier}</td><td>unset; run only scenarios tagged with this tier
  *       (the canonical suite's {@code smoke}, {@code standard}, {@code full})</td></tr>
- *   <tr><td>{@code dashboard.backend}</td><td>{@code legacy}; {@code exact} runs the exact
+ *   <tr><td>{@code dashboard.backend}</td><td>{@code legacy}; {@code astar} runs the A*
  *       pathfinder (unprofiled)</td></tr>
  *   <tr><td>{@code dashboard.filter}</td><td>unset; run only the scenarios whose name or
  *       category contains it (ignoring case)</td></tr>
@@ -72,9 +72,9 @@ import shortestpath.scenarios.Suites;
  *       {@code true}/{@code false} always wins</td></tr>
  *   <tr><td>{@code dashboard.heatmap}</td><td>{@code true} (profiling only)</td></tr>
  *   <tr><td>{@code dashboard.threads}</td><td>{@code availableProcessors() - 3}</td></tr>
- *   <tr><td>{@code dashboard.backend}</td><td>{@code LEGACY} — {@code EXACT} runs
- *       the exact engine instead; a per-row {@code pathfinderBackend} config
- *       override still wins, and exact searches record unprofiled</td></tr>
+ *   <tr><td>{@code dashboard.backend}</td><td>{@code LEGACY} — {@code ASTAR} runs
+ *       the A* engine instead; a per-row {@code pathfinderBackend} config
+ *       override still wins, and A* searches record unprofiled</td></tr>
  *   <tr><td>{@code reachability.maxTargets}</td><td>{@code 10000}</td></tr>
  * </table>
  */

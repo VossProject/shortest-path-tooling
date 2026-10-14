@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
 import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.exact.RoutingCuts;
+import shortestpath.pathfinder.astar.RoutingCuts;
 
 public class RoutingCutsGeneratorTest
 {

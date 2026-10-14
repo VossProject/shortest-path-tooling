@@ -64,7 +64,7 @@ The default remains the `./shortest-path` Git submodule.
 | `./gradlew sailingBenchmark` | Time the experimental sailing search against the existing search on routes at sea (needs a plugin checkout with the sailing search) |
 | `./gradlew bankTileDump -PbankTileCacheDir=<dir> -PbankTileXteaPath=<keys.json>` | Dump bank-object placements from an OSRS cache to TSV |
 | `./gradlew sailingAmenityVarbitDump -PsailingAmenityCacheDir=<dir> -PsailingAmenityXteaPath=<keys.json>` | Dump Sailing island amenity varbits from an OSRS cache |
-| `./gradlew routingCuts -PkahipNodeSeparator=<path>` | Generate the exact pathfinder's `routing-cuts.bin` with KaHIP (see below) |
+| `./gradlew routingCuts -PkahipNodeSeparator=<path>` | Generate the A* pathfinder's `routing-cuts.bin` with KaHIP (see below) |
 | `./gradlew routingCutsReport` | Report how many committed cuts still apply to the current collision map |
 | `./gradlew benchmarkCanonical --args="..."` | Run a resolved benchmark manifest (used by shortest-path-benchmarks) |
 | `./gradlew route -ProuteArgs="..."` | Query one canonical route and print its selected path |
@@ -73,7 +73,7 @@ The route query uses the same profiles and adapter as `benchmarkCanonical`. PROF
 profile (`early`/`mid`/`end`/`maxed` or a dashboard preset such as `UNIT_TEST`), and
 `-ProuteSuite=SUITE -ProuteScenario="NAME"` runs one scenario of any suite
 (`-ProuteArgs=--list` lists them). It reads the routes in this checkout's `corpus/`; add
-`--algorithm exact`, `--json` or `--counters` as needed. Routes can be given by
+`--algorithm astar`, `--json` or `--counters` as needed. Routes can be given by
 corpus ID (`--route ID --profile PROFILE`) or by coordinates:
 
 ```bash
@@ -82,9 +82,9 @@ corpus ID (`--route ID --profile PROFILE`) or by coordinates:
   route
 ```
 
-## Exact routing cuts
+## A* routing cuts
 
-The plugin's exact pathfinder derives its routing data from `collision-map.zip`
+The plugin's A* pathfinder derives its routing data from `collision-map.zip`
 at runtime, using a small list of separator cut edges (`routing-cuts.bin`) to
 split large walking areas. `routingCuts` regenerates that file with KaHIP's
 `node_separator`, using the plugin's own walking graph:
@@ -140,7 +140,7 @@ revision that has them.
 `benchmarkCanonical` is the integration point for the
 [shortest-path-benchmarks](https://github.com/osrs-pathfinding/shortest-path-benchmarks)
 harness. It runs exactly the route/profile/repetition cases of a resolved
-manifest in one JVM, for the legacy or exact backend:
+manifest in one JVM, for the legacy or A* backend:
 
 ```bash
 ./gradlew benchmarkCanonical \

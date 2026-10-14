@@ -78,7 +78,7 @@ Union: **107 unique files**. Branch deltas relative to
 | 16 | Highlight overlays | boundary-record | `AbstractHighlightOverlay`, `BankItemHighlightOverlay`, `InventoryHighlightOverlay`, `SpellbookHighlightOverlay` |
 | 17 | Requirement middleware | landed — audited | `requirement/` (10 files) + `requirement/model/` (7 files) + eligibility-wiring rows on `PathfinderConfig` |
 | 18 | Pathfinder search core | deferred | `Pathfinder`, `CollisionMap`, `NodeGraph`, `VisitedTiles`, `SplitFlagMap`, `IntDeque`, `IntMinHeap`, `SearchDeadline`, `WildernessChecker`, `PathStep`, `PathfinderResult`, `PathfinderStats`, `PathfinderBackend`, `PathTerminationReason`, `AbstractNodeKind`, `OrdinalDirection`, `TransportAvailability`, `PathConsumptionValidator` |
-| 19 | Exact backend | deferred | `pathfinder/exact/` (20 files) + `ExactPathfinder`, `ExactRoutingStaticProvider` adapters + the account-snapshot row on `PathfinderConfig` |
+| 19 | A* backend | deferred | `pathfinder/astar/` (20 files) + `AStarPathfinder`, `AStarRoutingStaticProvider` adapters + the account-snapshot row on `PathfinderConfig` |
 | 20 | Leagues | deferred | `leagues/` (4 files) |
 | 21 | Transport TSV parser | deferred | `transport/parser/` (8 files) |
 | 22 | Leaf utilities | leaf | `WorldPointUtil`, `Util`, `PrimitiveIntHashMap`, `PrimitiveIntList`, `ItemVariations`, `TileCounter`, `TileStyle` |
@@ -136,8 +136,8 @@ branch.
 | shortestpath/pathfinder/AbstractNodeKind.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/ActiveSearch.java | path scheduler | the scheduler's published handle |
 | shortestpath/pathfinder/CollisionMap.java | pathfinder search core | deferred unit |
-| shortestpath/pathfinder/ExactPathfinder.java | exact backend | `ActiveSearch` adapter for the exact core |
-| shortestpath/pathfinder/ExactRoutingStaticProvider.java | exact backend | builds static routing data for the exact core |
+| shortestpath/pathfinder/AStarPathfinder.java | A* backend | `ActiveSearch` adapter for the A* core |
+| shortestpath/pathfinder/AStarRoutingStaticProvider.java | A* backend | builds static routing data for the A* core |
 | shortestpath/pathfinder/IntDeque.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/IntMinHeap.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/NodeGraph.java | pathfinder search core | deferred unit |
@@ -155,7 +155,7 @@ branch.
 | shortestpath/pathfinder/PathfinderConfig.java (`boostedSkillLevelsAndMore` `int[]` layout) | player skill levels | contested — responsibility row; the value type the layout becomes |
 | shortestpath/pathfinder/PathfinderConfig.java (availability views: `getTransportsPacked`, `getUsableTeleports`, `getTransportAvailability`, `TransportAvailabilities`) | pathfinder search core | contested — responsibility row; engine inputs |
 | shortestpath/pathfinder/PathfinderConfig.java (`requirements`/`eligibility`/`requirementHooks` wiring, `buildRoutingPolicy`) | requirement middleware | contested — responsibility row |
-| shortestpath/pathfinder/PathfinderConfig.java (`prepareExactRoutingAccount`) | exact backend | contested — responsibility row |
+| shortestpath/pathfinder/PathfinderConfig.java (`prepareAStarRoutingAccount`) | A* backend | contested — responsibility row |
 | shortestpath/pathfinder/PathfinderResult.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/PathfinderStats.java | pathfinder search core | deferred unit; consumed by diagnostics |
 | shortestpath/pathfinder/SearchDeadline.java | pathfinder search core | deferred unit |
@@ -163,26 +163,26 @@ branch.
 | shortestpath/pathfinder/TransportAvailability.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/VisitedTiles.java | pathfinder search core | deferred unit |
 | shortestpath/pathfinder/WildernessChecker.java | pathfinder search core | deferred unit |
-| shortestpath/pathfinder/exact/ExactCosts.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ExactForwardSearch.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ExactMinHeap.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ExactRoute.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ExactRoutingSession.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ExactWalkCanonicalizer.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/PreparedHeuristic.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/PreparedRoutingAccount.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/PreparedTarget.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/ReverseLabels.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/RoutingCuts.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/RoutingStatic.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/RoutingStaticBuilder.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/SearchRestrictions.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/SiteGraph.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/SparseWalkingNetworkBuilder.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/TargetOverlay.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/TeleportCapability.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/WalkGoal.java | exact backend | deferred unit |
-| shortestpath/pathfinder/exact/package-info.java | exact backend | declared dependency-rule precedent |
+| shortestpath/pathfinder/astar/CostArithmetic.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/AStarForwardSearch.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/AStarMinHeap.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/AStarRoute.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/AStarRoutingSession.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/AStarWalkCanonicalizer.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/PreparedHeuristic.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/PreparedRoutingAccount.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/PreparedTarget.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/ReverseLabels.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/RoutingCuts.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/RoutingStatic.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/RoutingStaticBuilder.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/SearchRestrictions.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/SiteGraph.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/SparseWalkingNetworkBuilder.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/TargetOverlay.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/TeleportCapability.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/WalkGoal.java | A* backend | deferred unit |
+| shortestpath/pathfinder/astar/package-info.java | A* backend | declared dependency-rule precedent |
 | shortestpath/requirement/BankPickupRequirements.java | requirement middleware | bank-pickup adapter; display phrases ride the presentation seam |
 | shortestpath/requirement/ClientPlayerStateSource.java | requirement middleware | `Client`-backed `PlayerStateSource` |
 | shortestpath/requirement/OwnedItems.java | player item state | collects owned-item pools; lives in `requirement/` today, owned by item state |
@@ -364,7 +364,7 @@ search handle.
 
 | Field | Content |
 |-------|---------|
-| Responsibilities | `pathfindingExecutor` (single-thread `ExecutorService` — the displayed path wins over pending queries); `pathfinderMutex`; `queries`/`QueryTask` (in-flight plugin-message query map, guarded by the mutex); `pendingTasks` + `PendingTask` (client-thread deferred work item, tick-scheduled via `PendingTask.check`); `restartPathfinding` overloads (incl. `canReviveFiltered`); `setTarget`/`setTargets`/`setStart`/`marker`; `ActiveSearch` publication — `pathfinder`/`legacyPathfinder`/`exactPathfinder`/`exactRoutingSession` volatile refs behind `getActiveSearch()`; `pathfinderFuture` |
+| Responsibilities | `pathfindingExecutor` (single-thread `ExecutorService` — the displayed path wins over pending queries); `pathfinderMutex`; `queries`/`QueryTask` (in-flight plugin-message query map, guarded by the mutex); `pendingTasks` + `PendingTask` (client-thread deferred work item, tick-scheduled via `PendingTask.check`); `restartPathfinding` overloads (incl. `canReviveFiltered`); `setTarget`/`setTargets`/`setStart`/`marker`; `ActiveSearch` publication — `pathfinder`/`legacyPathfinder`/`aStarPathfinder`/`aStarRoutingSession` volatile refs behind `getActiveSearch()`; `pathfinderFuture` |
 | Owned state | The `queries` map and `pendingTasks` list (mutex-guarded, cross-thread); the volatile `ActiveSearch` handle written on the client/worker boundary and read on the render thread; `PendingTask` named here explicitly — it is the scheduler's deferred-work type, not a loose shell class |
 | Subscribed events | None directly — the coordinator invokes it; menu verbs and the plugin-message API call its entry points today |
 | Published facts | `ActiveSearch` — the immutable-ish published handle (path, reachability, cancellation) read by overlays and the debug panel on the render thread; query results delivered through `postQueryResult`/`postQueryFailure` callbacks |
@@ -373,7 +373,7 @@ search handle.
 | Killed seams | Executor/mutex/query internals leave the shell; the ~10 scattered `restartPathfinding` call sites in event handlers collapse to coordinator declarations |
 | Seam anchors | Pinned — `ActiveSearch` is the render-thread read contract, and `restartPathfinding(reason, start, ends, canReviveFiltered)` is the coordinator's sole call in; query/callback plumbing provisional |
 | Extraction PR | Future — the scheduler extraction (lands with the refresh coordinator) |
-| Blast radius | `PendingTask`, `ActiveSearch` plus the executor/mutex/query/target responsibility rows on `ShortestPathPlugin`; `Pathfinder`/`ExactPathfinder` construction sites; harness mirrors (`ProfilingPathfinder`) |
+| Blast radius | `PendingTask`, `ActiveSearch` plus the executor/mutex/query/target responsibility rows on `ShortestPathPlugin`; `Pathfinder`/`AStarPathfinder` construction sites; harness mirrors (`ProfilingPathfinder`) |
 | Known violations | None — the violation is inward: everything this cluster owns is scattered across the shell today |
 
 ### Diagnostics
@@ -578,11 +578,11 @@ records).
 
 | Field | Content |
 |-------|---------|
-| Responsibilities | Render the diagnostics panel: the last restart attempt (`DebugState.Restart`), the current search state (`renderSearch`/`state(ActiveSearch, ExactPathfinder, PathfinderResult, DebugState)`), `renderRestart`, `renderErrors`; shown/hidden on the `drawDebugPanel` config key |
+| Responsibilities | Render the diagnostics panel: the last restart attempt (`DebugState.Restart`), the current search state (`renderSearch`/`state(ActiveSearch, AStarPathfinder, PathfinderResult, DebugState)`), `renderRestart`, `renderErrors`; shown/hidden on the `drawDebugPanel` config key |
 | Owned state | Panel-side render state only — `DebugState` is an injected data source owned by the diagnostics record (cross-referenced there, not re-owned here) |
 | Subscribed events | None — overlay manager registration rides `onConfigChanged`; renders each frame |
 | Published facts | None — terminal consumer |
-| Injected dependencies | `DebugState` via `plugin.getDebugState()` today — an injected read seam in target shape; `ActiveSearch`/exact-search handles for state text |
+| Injected dependencies | `DebugState` via `plugin.getDebugState()` today — an injected read seam in target shape; `ActiveSearch`/A* search handles for state text |
 | Consumers | The render thread; developers reading the panel |
 | Killed seams | `plugin.getDebugState()` shell read → injected `DebugState` |
 | Seam anchors | Pinned — reads the `DebugState` snapshot contract the diagnostics record owns |
@@ -607,12 +607,12 @@ re-examination.
   **Revisit trigger:** a correctness fix needing cross-cluster state, or a
   new mid-search state dimension that breaks the `boolean bankVisited`
   encodings (`PathStep`, `VisitedTiles`, `NodeGraph`).
-- **Exact backend** (`pathfinder/exact/` plus the `ExactPathfinder` /
-  `ExactRoutingStaticProvider` adapters) — confirmed coherent: the package
+- **A* backend** (`pathfinder/astar/` plus the `AStarPathfinder` /
+  `AStarRoutingStaticProvider` adapters) — confirmed coherent: the package
   already declares its dependency rule in `package-info.java` — it "must not
   depend on the legacy search implementation or RuneLite's mutable client
   state", the precedent the repo-wide dependency rule copies.
-  **Revisit trigger:** the exact backend absorbing legacy call sites or
+  **Revisit trigger:** the A* backend absorbing legacy call sites or
   growing its own plugin-facing seams beyond `ActiveSearch`.
 - **Leagues** (`leagues/`) — confirmed coherent: `LeagueModeState`,
   `LeagueModeSnapshot`, `LeagueRegion`, `LeagueRegionChecker` form a

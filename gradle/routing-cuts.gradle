@@ -1,6 +1,6 @@
-// --- Exact routing cuts ---
+// --- A* routing cuts ---
 //
-// Generates routing-cuts.bin for the plugin's exact backend: KaHIP node separators over the
+// Generates routing-cuts.bin for the plugin's A* backend: KaHIP node separators over the
 // plugin's own walking graph (from the plugin checkout's collision-map.zip and transports).
 //
 // Usage:
@@ -34,7 +34,7 @@ tasks.register('routingCuts', JavaExec) {
 }
 
 // Reports how many cuts in a routing-cuts.bin no longer apply to the plugin's current collision
-// map, the resulting component sizes, and the exact routing data build time.
+// map, the resulting component sizes, and the A* routing data build time.
 //   ./gradlew routingCutsReport -PshortestPathDir=../shortest-path [-ProutingCutsFile=<path>]
 def routingCutsFile = providers.gradleProperty('routingCutsFile').orElse('')
 

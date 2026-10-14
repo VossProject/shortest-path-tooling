@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import shortestpath.pathfinder.exact.RoutingCuts;
+import shortestpath.pathfinder.astar.RoutingCuts;
 
 /** Runs KaHIP's {@code node_separator} on an unweighted METIS graph file. */
 final class KahipNodeSeparator implements NodeSeparator

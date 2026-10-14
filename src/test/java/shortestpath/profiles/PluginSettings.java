@@ -73,7 +73,7 @@ public class PluginSettings implements ShortestPathConfig {
     private boolean collisionAwareBlockedTargets = true;
     // The pathfinder a run uses is the ScenarioRunner's backend; this is only the plugin setting.
     private PathfinderBackend pathfinderBackend = PathfinderBackend.LEGACY;
-    private int exactHeuristicWeight = 100;
+    private int aStarHeuristicWeight = 100;
     private boolean useSailingMoves = true;
 
     // -------------------------------------------------------------------------
@@ -167,7 +167,7 @@ public class PluginSettings implements ShortestPathConfig {
     @Override public int unreachableTargetDistance() { return unreachableTargetDistance; }
     @Override public boolean collisionAwareBlockedTargets() { return collisionAwareBlockedTargets; }
     @Override public PathfinderBackend pathfinderBackend() { return pathfinderBackend; }
-    @Override public int exactHeuristicWeight() { return exactHeuristicWeight; }
+    @Override public int aStarHeuristicWeight() { return aStarHeuristicWeight; }
     // Not marked @Override: plugin checkouts without the sailing search don't have this option (see src/sailing)
     public boolean useSailingMoves() { return useSailingMoves; }
 
@@ -273,7 +273,7 @@ public class PluginSettings implements ShortestPathConfig {
     public void setUnreachableTargetDistance(int v) { unreachableTargetDistance = v; }
     public void setCollisionAwareBlockedTargets(boolean v) { collisionAwareBlockedTargets = v; }
     public void setPathfinderBackend(PathfinderBackend v) { pathfinderBackend = v; }
-    public void setExactHeuristicWeight(int v) { exactHeuristicWeight = v; }
+    public void setAStarHeuristicWeight(int v) { aStarHeuristicWeight = v; }
     public void setUseSailingMoves(boolean v) { useSailingMoves = v; }
 
     public void setUsePoh(boolean v) { usePoh = v; }

@@ -1,7 +1,7 @@
 package shortestpath.scenarios;
 
 import java.util.OptionalInt;
-import shortestpath.pathfinder.ExactPathfinder;
+import shortestpath.pathfinder.AStarPathfinder;
 import shortestpath.pathfinder.PathfinderProfile;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.profiles.CompiledAccount;
@@ -12,17 +12,17 @@ public final class Observation {
     private final ScenarioRunner.Backend backend;
     private final CompiledAccount account;
     private final PathfinderResult result;
-    private final ExactPathfinder exact;
+    private final AStarPathfinder aStarPathfinder;
     private final PathfinderProfile profile;
     private final long totalNanos;
 
     Observation(Scenario scenario, ScenarioRunner.Backend backend, CompiledAccount account, PathfinderResult result,
-            ExactPathfinder exact, PathfinderProfile profile, long totalNanos) {
+            AStarPathfinder aStarPathfinder, PathfinderProfile profile, long totalNanos) {
         this.scenario = scenario;
         this.backend = backend;
         this.account = account;
         this.result = result;
-        this.exact = exact;
+        this.aStarPathfinder = aStarPathfinder;
         this.profile = profile;
         this.totalNanos = totalNanos;
     }
@@ -31,8 +31,8 @@ public final class Observation {
     public ScenarioRunner.Backend getBackend() { return backend; }
     public CompiledAccount getAccount() { return account; }
     public PathfinderResult getResult() { return result; }
-    /** The exact pathfinder, for its phase timings and counters; {@code null} on legacy. */
-    public ExactPathfinder getExact() { return exact; }
+    /** The A* pathfinder, for its phase timings and counters; {@code null} on legacy. */
+    public AStarPathfinder getAStar() { return aStarPathfinder; }
     /** The legacy profiler's measurements; {@code null} unless profiling was on. */
     public PathfinderProfile getProfile() { return profile; }
     /** Nanoseconds spent constructing and running the pathfinder. */

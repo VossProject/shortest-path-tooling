@@ -32,7 +32,7 @@ CASES = [("gps-natural-0012", "maxed", True), ("gps-natural-0012", "early", Fals
 CLOCK = 100_000_000
 PROJECTS = {
     "shortest-path": {"algorithm": "legacy", "diagnostic": False},
-    "shortest-path-exact": {"algorithm": "exact", "diagnostic": True, "exact_session": "target"},
+    "shortest-path-astar": {"algorithm": "astar", "diagnostic": True, "astar_session": "target"},
 }
 # observation-v2's required fields, and the types the harness accepts for them.
 REQUIRED = {
@@ -95,7 +95,7 @@ def check_envelope(project, envelope):
         if row["total_ns"] is None:
             raise SmokeError(f"{label}: a measured observation needs total_ns")
         if PROJECTS[project]["diagnostic"] and not isinstance(row.get("graph_reused"), bool):
-            raise SmokeError(f"{label}: diagnostic exact observation has no graph_reused")
+            raise SmokeError(f"{label}: diagnostic A* observation has no graph_reused")
 
 
 def run(project, output_dir):

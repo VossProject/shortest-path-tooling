@@ -9,7 +9,7 @@ import java.util.Comparator;
 import java.util.List;
 import shortestpath.WorldPointUtil;
 import shortestpath.pathfinder.PathStep;
-import shortestpath.pathfinder.ExactPathfinder;
+import shortestpath.pathfinder.AStarPathfinder;
 import shortestpath.pathfinder.PathfinderConfig;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.TransportAvailability;
@@ -20,7 +20,7 @@ import shortestpath.scenarios.Route;
 import shortestpath.scenarios.Scenario;
 import shortestpath.scenarios.ScenarioRunner;
 import shortestpath.scenarios.Suites;
-import shortestpath.pathfinder.exact.ExactForwardSearch;
+import shortestpath.pathfinder.astar.AStarForwardSearch;
 import shortestpath.transport.Transport;
 
 /** Command-line frontend for querying one route: a canonical route, coordinates, or any suite scenario. */
@@ -152,7 +152,7 @@ public final class RouteCli {
     private static void printHuman(Query query, String algorithm, Observation observation,
             List<MatchedTransport> transports, boolean counters) {
         PathfinderResult result = observation.getResult();
-        ExactPathfinder exact = observation.getExact();
+        AStarPathfinder aStar = observation.getAStar();
         int start = query.scenario.getRouteStart();
         int target = query.scenario.getTarget();
         Route route = query.route;
@@ -208,9 +208,9 @@ public final class RouteCli {
             System.out.println("  nodes_expanded: " + result.getNodesChecked());
             System.out.println("  transports_checked: " + result.getTransportsChecked());
             System.out.println("  search_ms: " + result.getElapsedNanos() / 1_000_000.0);
-            if (exact != null) {
-                ExactForwardSearch.Counters stats = exact.getExactStats();
-                System.out.println("  forward_search_ms: " + exact.getForwardSearchNanos() / 1_000_000.0);
+            if (aStar != null) {
+                AStarForwardSearch.Counters stats = aStar.getAStarStats();
+                System.out.println("  forward_search_ms: " + aStar.getForwardSearchNanos() / 1_000_000.0);
                 System.out.println("  pq_pushes: " + stats.pqPushes());
                 System.out.println("  walking_pq_pushes: " + stats.walkingPqPushes());
                 System.out.println("  local_transport_pq_pushes: " + stats.localTransportPqPushes());
@@ -488,8 +488,8 @@ public final class RouteCli {
                     positional.add(argument);
                 }
             }
-            if (!algorithm.equals("legacy") && !algorithm.equals("exact")) {
-                throw new IllegalArgumentException("algorithm must be legacy or exact");
+            if (!algorithm.equals("legacy") && !algorithm.equals("astar")) {
+                throw new IllegalArgumentException("algorithm must be legacy or astar");
             }
             if (suite != null || scenario != null || list) {
                 boolean other = !positional.isEmpty() || profile != null || routeSelector != null
@@ -563,7 +563,7 @@ public final class RouteCli {
                 + "| --start X,Y,PLANE --end X,Y,PLANE --profile PROFILE "
                 + "| PROFILE START_X START_Y START_PLANE TARGET_X TARGET_Y TARGET_PLANE "
                 + "| ROUTE PROFILE [ROUTE PROFILE ...]"
-                + "| --suite SUITE (--scenario NAME | --list)) [--algorithm legacy|exact] [--json] [--counters]"
+                + "| --suite SUITE (--scenario NAME | --list)) [--algorithm legacy|astar] [--json] [--counters]"
                 + "; PROFILE is any profile (early, mid, end, maxed, ALL, UNIT_TEST, SEASONAL, ...)");
         }
     }

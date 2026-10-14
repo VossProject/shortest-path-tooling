@@ -13,13 +13,13 @@ import java.util.Set;
 import shortestpath.ShortestPathPlugin;
 import shortestpath.pathfinder.CollisionMap;
 import shortestpath.pathfinder.SplitFlagMap;
-import shortestpath.pathfinder.exact.RoutingCuts;
-import shortestpath.pathfinder.exact.RoutingStaticBuilder;
+import shortestpath.pathfinder.astar.RoutingCuts;
+import shortestpath.pathfinder.astar.RoutingStaticBuilder;
 import shortestpath.transport.Transport;
 import shortestpath.transport.TransportLoader;
 
 /**
- * Generates {@code routing-cuts.bin} for the exact backend by recursively partitioning large,
+ * Generates {@code routing-cuts.bin} for the A* backend by recursively partitioning large,
  * structurally reachable walking components with KaHIP's node separator.
  *
  * <p>Every natural component larger than the maximum component size and reachable from the

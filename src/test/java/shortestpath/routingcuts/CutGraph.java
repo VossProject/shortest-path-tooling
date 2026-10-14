@@ -1,6 +1,6 @@
 package shortestpath.routingcuts;
 
-import shortestpath.pathfinder.exact.RoutingStaticBuilder;
+import shortestpath.pathfinder.astar.RoutingStaticBuilder;
 
 /** The walking graph the cut generator partitions. Tile indexes follow ascending packed order. */
 interface CutGraph

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import benchmark_smoke as smoke  # noqa: E402
 
 
-def envelope(project="shortest-path-exact"):
+def envelope(project="shortest-path-astar"):
     rows = []
     for route, profile, reachable in smoke.CASES:
         rows.append({
@@ -28,7 +28,7 @@ def envelope(project="shortest-path-exact"):
 
 
 def test_accepts_a_good_envelope():
-    smoke.check_envelope("shortest-path-exact", envelope())
+    smoke.check_envelope("shortest-path-astar", envelope())
 
 
 @pytest.mark.parametrize("break_it", [
@@ -48,4 +48,4 @@ def test_rejects_what_the_harness_would(break_it):
     bad = copy.deepcopy(envelope())
     break_it(bad)
     with pytest.raises(smoke.SmokeError):
-        smoke.check_envelope("shortest-path-exact", bad)
+        smoke.check_envelope("shortest-path-astar", bad)

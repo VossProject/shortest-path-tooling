@@ -6,7 +6,7 @@ def dashboardSuite = providers.gradleProperty('dashboardSuite')
         .orElse('routes')
 def dashboardDataset = providers.gradleProperty('dashboardDataset')
         .orElse('')
-// legacy or exact pathfinder (exact runs unprofiled).
+// legacy or A* pathfinder (A* runs unprofiled).
 def dashboardBackend = providers.gradleProperty('dashboardBackend')
         .orElse('legacy')
 // Run only the scenarios tagged with this tier (the canonical suite's smoke/standard/full).
@@ -119,7 +119,7 @@ tasks.register('dashboard', Test) {
             'dashboardDataset (a route JSON file to run instead of a suite), ' +
             'dashboardFilter (run only scenarios whose name or category contains it), ' +
             'dashboardTier (run only scenarios with this tier tag, e.g. smoke), ' +
-            'dashboardBackend (legacy or exact; default legacy), ' +
+            'dashboardBackend (legacy or astar; default legacy), ' +
             'dashboardBundle, dashboardTitle, dashboardSubtitle, dashboardProfile ' +
             '(default: auto — on for datasets up to 200 scenarios, off above; ' +
             'pass true/false to force), ' +

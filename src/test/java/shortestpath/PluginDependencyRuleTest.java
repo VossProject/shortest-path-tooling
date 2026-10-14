@@ -99,7 +99,7 @@ public class PluginDependencyRuleTest
 		ALLOWLIST.put("shortestpath/pathfinder/PathfinderConfig.java:330",
 			"override read of collisionAwareBlockedTargets — migrates to the settings service");
 		ALLOWLIST.put("shortestpath/pathfinder/PathfinderConfig.java:333",
-			"override read of exactHeuristicWeight — migrates to the settings service");
+			"override read of aStarHeuristicWeight — migrates to the settings service");
 		ALLOWLIST.put("shortestpath/pathfinder/PathfinderConfig.java:334",
 			"override read of avoidWilderness — migrates to the settings service");
 		ALLOWLIST.put("shortestpath/pathfinder/PathfinderConfig.java:335",

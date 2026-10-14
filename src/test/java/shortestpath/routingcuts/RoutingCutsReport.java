@@ -9,14 +9,14 @@ import shortestpath.Destination;
 import shortestpath.ShortestPathPlugin;
 import shortestpath.pathfinder.CollisionMap;
 import shortestpath.pathfinder.SplitFlagMap;
-import shortestpath.pathfinder.exact.RoutingCuts;
-import shortestpath.pathfinder.exact.RoutingStaticBuilder;
+import shortestpath.pathfinder.astar.RoutingCuts;
+import shortestpath.pathfinder.astar.RoutingStaticBuilder;
 import shortestpath.transport.Transport;
 import shortestpath.transport.TransportLoader;
 
 /**
  * Reports how well a cut file fits the plugin's current collision map: how many cuts no longer
- * apply, the resulting component sizes, and how long the exact routing data takes to build.
+ * apply, the resulting component sizes, and how long the A* routing data takes to build.
  * Arguments: {@code [CUTS]}; defaults to the plugin's packaged {@code routing-cuts.bin}.
  */
 public final class RoutingCutsReport

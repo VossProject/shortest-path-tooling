@@ -114,7 +114,7 @@ Runs `DashboardTest` against one suite and writes a bundle into the output site.
 | `dashboardDataset` | *(empty)* | A route JSON file to run instead of a suite (routes without `profiles` run with `ALL`) |
 | `dashboardFilter` | *(empty)* | Run only the scenarios whose name or category contains it (ignoring case), e.g. `issue-140` |
 | `dashboardTier` | *(empty)* | Run only scenarios tagged with this tier, e.g. `canonical` with `smoke` |
-| `dashboardBackend` | `legacy` | `exact` runs the exact pathfinder (unprofiled); the bundle gets an `-exact` suffix and the title an `Exact` suffix |
+| `dashboardBackend` | `legacy` | `astar` runs the A* pathfinder (unprofiled); the bundle gets an `-astar` suffix and the title an `A*` suffix |
 | `dashboardBundle` | auto-derived from the suite name + profile flag | Bundle directory name |
 | `dashboardTitle` | auto-derived from the suite name | Title shown in the UI |
 | `dashboardSubtitle` | *(empty)* | Subtitle shown in the UI |
@@ -202,7 +202,7 @@ When modifying `Pathfinder.java`'s search loop, run this test to confirm the pro
 |---|---|
 | A new regression or an upstream issue | add a scenario ([scenarios.md](scenarios.md#common-changes)), run its suite with `-PdashboardFilter` |
 | Broad sweep after changing core search behavior | `clue-locations-full` or `canonical`, profiling off |
-| Legacy vs exact | the same suite with `-PdashboardBackend=exact` |
+| Legacy vs A* | the same suite with `-PdashboardBackend=astar` |
 | Performance analysis (where time is spent, queue sizes) | any suite with `dashboardProfile=true` |
 | Bootstrap or refresh expected path lengths | `captureExpectedLengths` |
 
