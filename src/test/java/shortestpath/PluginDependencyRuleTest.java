@@ -321,15 +321,25 @@ public class PluginDependencyRuleTest
 
 	/**
 	 * Field-declaration shape for the public-mutable-field scan:
-	 * {@code public <type> <name> [=|;]}. {@code public static} and
-	 * {@code public final} declarations cannot match — the modifier
-	 * word occupies the type slot and the real type name then fails
-	 * the {@code [=;]} tail — so no explicit modifier exclusion is
-	 * needed. Package-private seams and accessor-mediated mutation
-	 * are outside this grammar by design (a recorded coverage limit).
+	 * {@code public [modifier-or-annotation...] <type> <name>
+	 * [=|;|,]}. {@code public static} and {@code public final}
+	 * declarations are excluded by the lookahead on the first
+	 * post-{@code public} word; the admitted pre-type tokens are
+	 * {@code volatile}, {@code transient}, and annotations, so
+	 * {@code public volatile int x}, {@code public transient Foo f},
+	 * {@code public @Nullable Foo f}, multi-declarator
+	 * {@code public int a, b}, and column-0 declarations all match.
+	 * A {@code static}/{@code final} word behind an annotation or
+	 * {@code volatile} still misses the tail ({@code public @Ann
+	 * final int x} reads {@code final} as the type), which keeps
+	 * those exempt too. Package-private seams and accessor-mediated
+	 * mutation are outside this grammar by design (a recorded
+	 * coverage limit).
 	 */
 	private static final Pattern PUBLIC_FIELD =
-		Pattern.compile("^\\s+public\\s+[A-Za-z0-9_<>,.\\[\\]]+\\s+[a-zA-Z_]+\\s*[=;]");
+		Pattern.compile("^\\s*public\\s+(?!static\\b|final\\b)"
+			+ "(?:(?:volatile|transient)\\s+|@[\\w.]+(?:\\([^)]*\\))?\\s+)*"
+			+ "[A-Za-z0-9_<>,.\\[\\]]+\\s+[a-zA-Z_]\\w*\\s*[=;,]");
 
 	/**
 	 * Injection marker for the mutable-field scan: a
@@ -653,13 +663,15 @@ public class PluginDependencyRuleTest
 	}
 
 	/**
-	 * Scan the leaf packages for {@code public <type> <name> [=|;]}
-	 * field declarations on comment-stripped lines and return the
-	 * sorted set of {@code path:line} keys. {@code public static} /
-	 * {@code public final} cannot match the two-word grammar, and a
-	 * declaration carrying {@code @Inject} on its own or the
-	 * immediately preceding non-blank line is exempt — RuneLite's
-	 * injector owns those references.
+	 * Scan the leaf packages for public mutable field declarations —
+	 * the {@link #PUBLIC_FIELD} grammar covers the bare, column-0,
+	 * {@code volatile}/{@code transient}, annotation-bearing, and
+	 * multi-declarator forms — on comment-stripped lines and return
+	 * the sorted set of {@code path:line} keys. {@code public
+	 * static} / {@code public final} cannot match, and a declaration
+	 * carrying {@code @Inject} on its own or the immediately
+	 * preceding non-blank line is exempt — RuneLite's injector owns
+	 * those references.
 	 */
 	static SortedSet<String> observedPublicMutableFields(Path mainRoot) throws IOException
 	{
@@ -1069,9 +1081,11 @@ public class PluginDependencyRuleTest
 
 	/**
 	 * Red-direction proof for {@link #observedPublicMutableFields(Path)}:
-	 * {@code public} instance fields must flag, while
-	 * {@code public static}/{@code public final} declarations,
-	 * comment text, private fields, and {@code @Inject} fields must not.
+	 * {@code public} instance fields must flag — bare, column-0,
+	 * {@code volatile}/{@code transient}, annotation-bearing, and
+	 * multi-declarator forms alike — while {@code public static}/
+	 * {@code public final} declarations, comment text, private
+	 * fields, and {@code @Inject} fields must not.
 	 */
 	@Test
 	public void flagsMutableField() throws IOException
@@ -1081,8 +1095,13 @@ public class PluginDependencyRuleTest
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("MutableProbeTmp.java"), Arrays.asList(
 			"class MutableProbeTmp {",
+			"public int colZero;",
 			"    public int counter = 0;",
 			"    public String name;",
+			"    public volatile int tick;",
+			"    public transient Object cache;",
+			"    public @Deprecated int legacy;",
+			"    public int a, b;",
 			"    public static int shared;",
 			"    public final String id = \"x\";",
 			"    public static final long MAX = 5;",
@@ -1096,10 +1115,17 @@ public class PluginDependencyRuleTest
 			"}"));
 
 		SortedSet<String> observed = observedPublicMutableFields(fixture);
-		assertEquals("only the two public instance fields must flag: " + observed,
+		assertEquals("the bare, column-0, modifier-bearing, annotated, and "
+				+ "multi-declarator public instance fields must flag — "
+				+ "static/final, comments, and private fields must not: " + observed,
 			new TreeSet<>(Arrays.asList(
 				"shortestpath/items/MutableProbeTmp.java:2",
-				"shortestpath/items/MutableProbeTmp.java:3")),
+				"shortestpath/items/MutableProbeTmp.java:3",
+				"shortestpath/items/MutableProbeTmp.java:4",
+				"shortestpath/items/MutableProbeTmp.java:5",
+				"shortestpath/items/MutableProbeTmp.java:6",
+				"shortestpath/items/MutableProbeTmp.java:7",
+				"shortestpath/items/MutableProbeTmp.java:8")),
 			observed);
 
 		SortedSet<String> unlisted = new TreeSet<>(observed);
