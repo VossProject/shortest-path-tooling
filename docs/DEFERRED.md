@@ -42,9 +42,12 @@ the rest.
 **Upstream-followup (each needs its own upstream PR after merges):**
 
 - Provisional seam repairs deferred out of the in-flight stack diff —
-  four documented edges plus the `DebugOverlayPanel` constructor
-  adjudication; post-merge is the only moment their repair is free of
-  re-diff cost.
+  four documented edges plus the `DebugOverlayPanel` constructor,
+  adjudicated a named lint exception: RuneLite's `OverlayPanel`
+  requires the plugin instance, so the parameter keeps the
+  `ShortestPathPlugin` type only to satisfy `super(plugin)`; widening
+  it to `net.runelite.client.plugins.Plugin` is deferred post-merge
+  for the same reason.
 - `UNLOCK_*` parser hardening — typo'd unlock tokens currently abort
   plugin startup; per-record validation or a TSV-lint name check.
 - Unlock-branch null rows in `getStaves()`/`getOffhands()`,
