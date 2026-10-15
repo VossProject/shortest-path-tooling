@@ -944,8 +944,13 @@ def scan_report(path: Path) -> List[str]:
     runs = data.get("runs")
     if runs is not None and not isinstance(runs, list):
         return [f"unexpected report shape: {path}"]
+    # An empty or absent runs list can never read as green — a suite
+    # that crashed before producing records, or a selection that
+    # matched no scenarios, would otherwise pass the tier vacuously.
+    if not runs:
+        return [f"empty report: {path}"]
     failures = []
-    for r in runs or []:
+    for r in runs:
         if not isinstance(r, dict):
             failures.append(f"malformed run record in {path}")
             continue
@@ -1063,25 +1068,26 @@ def do_verify(args: argparse.Namespace) -> int:
             # An empty sweep is a broken gate, not a green one.
             failures.append(
                 "no dashboard suites listed by ./gradlew scenarioIndex")
-        for idx, suite in enumerate(datasets, 1):
+        else:
+            # One JVM runs every suite and publishes each bundle
+            # incrementally; the per-suite seasonal/f2p overlays now
+            # derive from each suite's slug on the Java side, so the
+            # consolidated argv carries no per-suite flags.
             argv = ["./gradlew", "dashboard",
-                    f"-PdashboardSuite={suite}",
+                    "-PdashboardSuite=all",
                     "-PdashboardProfile=false"]
-            # Belt-and-braces over the slug auto-tagging — a renamed
-            # suite would otherwise lose its overlay silently.
-            if suite.startswith("seasonal-"):
-                argv.append("-PdashboardSeasonal=true")
-            if suite.startswith("f2p-"):
-                argv.append("-PdashboardF2p=true")
-            slug = suite.lower().replace("_", "-")
-            print(f"--- suite {idx}/{len(datasets)}: {suite}",
-                  flush=True)
-            hook = _scenario_progress_hook(slug)
+            hook = _scenario_progress_hook("all")
             run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
                 stream=True, on_line=hook)
             hook.close()
-            # profile=false makes the bundle name equal the slug —
+        # ignoreFailures makes the Gradle exit code meaningless — each
+        # suite's report.json is scanned individually, so a bundle
+        # that is missing, malformed, or empty still fails the tier
+        # attributed by slug.
+        for suite in datasets:
+            # profile=false keeps the bundle name equal to the slug —
             # the same derivation dashboards.gradle applies.
+            slug = suite.lower().replace("_", "-")
             report = (REPO / "build" / "reports" / "pathfinder-dashboard" /
                       "bundles" / slug / "report.json")
             failures.extend(scan_report(report))

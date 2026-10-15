@@ -1587,6 +1587,16 @@ def test_scan_report_wrong_shape_fails_closed(tmp_path):
         assert failures and str(bad) in failures[0], payload
 
 
+def test_scan_report_rejects_empty_runs(tmp_path):
+    # A vacuous bundle — an empty runs list or no runs key at all —
+    # can never read as green: it fails closed like a missing file.
+    # This is the check the fast smoke tier depends on.
+    bad = tmp_path / "report.json"
+    for payload in ('{"runs": []}', '{"title": "x"}'):
+        bad.write_text(payload)
+        assert mm.scan_report(bad) == [f"empty report: {bad}"], payload
+
+
 def test_scan_report_exempts_expected_unreachable(tmp_path):
     # An explicit expectedReachable=false exempts an unreached run —
     # intentional-failure dataset rows must not read as failures.
@@ -1653,16 +1663,24 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
         if cmd[:2] == ["./gradlew", "dashboard"]:
             suite = next(a.split("=", 1)[1] for a in cmd
                          if a.startswith("-PdashboardSuite="))
-            csv = suite
-            slug = suite.lower().replace("_", "-")
-            runs = (runs_for(csv) if runs_for
-                    else [make_run_record(csv)])
-            if csv not in missing_reports:
-                write_report(
-                    repo / "build" / "reports" /
-                    "pathfinder-dashboard" / "bundles" / slug /
-                    "report.json", runs)
-            return cp(cmd, f"dashboard {csv}\n")
+            tier = next((a.split("=", 1)[1] for a in cmd
+                         if a.startswith("-PdashboardTier=")), "")
+            # all-mode runs every listed suite in one invocation and
+            # publishes each bundle incrementally under its own slug;
+            # a selected tier joins the stem the way dashboards.gradle's
+            # sourceStem appends _<tier> before the slug fold.
+            suites = datasets if suite == "all" else [suite]
+            for csv in suites:
+                stem = csv + ("_" + tier if tier else "")
+                slug = stem.lower().replace("_", "-")
+                runs = (runs_for(csv) if runs_for
+                        else [make_run_record(csv)])
+                if csv not in missing_reports:
+                    write_report(
+                        repo / "build" / "reports" /
+                        "pathfinder-dashboard" / "bundles" / slug /
+                        "report.json", runs)
+            return cp(cmd, f"dashboard {suite}\n")
         if cmd[:2] == ["./gradlew", "compileTestJava"]:
             return cp(cmd, rc=compile_rc)
         if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
@@ -1705,19 +1723,29 @@ def verify_kind(cmd):
 def test_verify_derives_datasets_from_scenario_suites(tmp_path,
                                                    monkeypatch):
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    seen = []
+    real = mm.scan_report
+
+    def spy(path):
+        seen.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(mm, "scan_report", spy)
     rc = mm.main(["verify"])
     assert rc == 0
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
-    assert len(dashboards) == len(DASHBOARD_CSVS)
-    for cmd in dashboards:
-        assert "-PdashboardProfile=false" in cmd
-    swept = sorted(
-        next(a for a in c if a.startswith("-PdashboardSuite="))
-        .split("=", 1)[1] for c in dashboards)
-    assert swept == sorted(DASHBOARD_CSVS)
+    # The sweep is exactly one JVM invocation — the per-suite Gradle
+    # loop is gone.
+    assert dashboards == [["./gradlew", "dashboard",
+                           "-PdashboardSuite=all",
+                           "-PdashboardProfile=false"]]
     # The list comes from the Java suite registry, never a directory glob.
     assert ["./gradlew", "-q", "scenarioIndex"] in [c for c, _ in calls]
+    # Every suite's report is still scanned individually by slug.
+    scanned = sorted(p.parent.name for p in seen)
+    assert scanned == sorted(
+        s.lower().replace("_", "-") for s in DASHBOARD_CSVS)
 
 
 def test_verify_unparseable_index_fails_closed(tmp_path, monkeypatch,
@@ -1738,6 +1766,8 @@ def test_verify_unparseable_index_fails_closed(tmp_path, monkeypatch,
 
 
 def test_verify_datasets_single_suite(tmp_path, monkeypatch):
+    # Even a one-suite index goes through the consolidated all-mode
+    # call — the sweep never reverts to a per-suite argv.
     repo, _, calls = prepare_verify(
         tmp_path, monkeypatch, datasets=["routes"])
     rc = mm.main(["verify"])
@@ -1745,28 +1775,35 @@ def test_verify_datasets_single_suite(tmp_path, monkeypatch):
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
     assert len(dashboards) == 1
-    assert "-PdashboardSuite=routes" in dashboards[0]
+    assert "-PdashboardSuite=all" in dashboards[0]
 
 
 def test_verify_overlay_flags(tmp_path, monkeypatch):
+    # Seasonal/f2p overlays derive from each suite's bundle-name prefix
+    # inside the dashboard task — the consolidated argv must carry no
+    # per-suite flags at all.
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
     rc = mm.main(["verify"])
     assert rc == 0
-    by_dataset = {}
-    for cmd, _ in calls:
-        if cmd[:2] != ["./gradlew", "dashboard"]:
-            continue
-        name = next(a for a in cmd
-                    if a.startswith("-PdashboardSuite=")).split(
-                        "=", 1)[1]
-        by_dataset[name] = cmd
-    assert "-PdashboardSeasonal=true" in \
-        by_dataset["seasonal-briefcase-routes"]
-    assert "-PdashboardF2p=true" in by_dataset["f2p-routes"]
-    assert not any("dashboardSeasonal" in a
-                   for a in by_dataset["routes"])
-    assert not any("dashboardF2p" in a
-                   for a in by_dataset["routes"])
+    dashboards = [c for c, _ in calls
+                  if c[:2] == ["./gradlew", "dashboard"]]
+    assert len(dashboards) == 1
+    assert not any("dashboardSeasonal" in a for a in dashboards[0])
+    assert not any("dashboardF2p" in a for a in dashboards[0])
+
+
+def test_verify_missing_suite_report_names_the_suite(
+        tmp_path, monkeypatch, capsys):
+    # A suite the index lists but whose bundle never landed must fail
+    # the tier attributed by slug — the consolidated call's exit code
+    # carries no per-suite signal.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["f2p-routes"])
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "f2p-routes" in out
 
 
 def test_verify_compile_failure_marks_tier_but_continues(
