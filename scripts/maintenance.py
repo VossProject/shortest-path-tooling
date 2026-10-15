@@ -1063,20 +1063,39 @@ def do_verify(args: argparse.Namespace) -> int:
     if not args.skip_dashboard:
         t0 = timed_tier("dashboard")
         failures = []
-        datasets = dashboard_datasets()
-        if not datasets:
-            # An empty sweep is a broken gate, not a green one.
-            failures.append(
-                "no dashboard suites listed by ./gradlew scenarioIndex")
-        else:
-            # One JVM runs every suite and publishes each bundle
-            # incrementally; the per-suite seasonal/f2p overlays now
-            # derive from each suite's slug on the Java side, so the
-            # consolidated argv carries no per-suite flags.
+        if args.fast:
+            # --fast narrows only this tier to the canonical suite's
+            # smoke tag — a quick signal that still cannot pass
+            # vacuously: scan_report rejects a missing, malformed, or
+            # empty report.  The tier suffix joins the stem the way
+            # dashboards.gradle's sourceStem appends _<tier> before
+            # the slug fold.
             argv = ["./gradlew", "dashboard",
-                    "-PdashboardSuite=all",
+                    "-PdashboardSuite=canonical",
+                    "-PdashboardTier=smoke",
                     "-PdashboardProfile=false"]
-            hook = _scenario_progress_hook("all")
+            stems = ["canonical_smoke"]
+        else:
+            datasets = dashboard_datasets()
+            if not datasets:
+                # An empty sweep is a broken gate, not a green one.
+                failures.append(
+                    "no dashboard suites listed by "
+                    "./gradlew scenarioIndex")
+                argv = None
+                stems = []
+            else:
+                # One JVM runs every suite and publishes each bundle
+                # incrementally; the per-suite seasonal/f2p overlays
+                # now derive from each suite's slug on the Java side,
+                # so the consolidated argv carries no per-suite flags.
+                argv = ["./gradlew", "dashboard",
+                        "-PdashboardSuite=all",
+                        "-PdashboardProfile=false"]
+                stems = datasets
+        if argv is not None:
+            hook = _scenario_progress_hook(
+                stems[0] if args.fast else "all")
             run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
                 stream=True, on_line=hook)
             hook.close()
@@ -1084,10 +1103,10 @@ def do_verify(args: argparse.Namespace) -> int:
         # suite's report.json is scanned individually, so a bundle
         # that is missing, malformed, or empty still fails the tier
         # attributed by slug.
-        for suite in datasets:
+        for stem in stems:
             # profile=false keeps the bundle name equal to the slug —
             # the same derivation dashboards.gradle applies.
-            slug = suite.lower().replace("_", "-")
+            slug = stem.lower().replace("_", "-")
             report = (REPO / "build" / "reports" / "pathfinder-dashboard" /
                       "bundles" / slug / "report.json")
             failures.extend(scan_report(report))
@@ -1576,6 +1595,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Run the compatibility gate: compile -> submodule test "
              "-> dashboard sweep over committed scenario suites -> "
              "collision-map edge-diff")
+    vf.add_argument(
+        "--fast", action="store_true",
+        help="Narrow the dashboard tier to the canonical suite's "
+             "smoke tier — a quick non-vacuous signal for the dev "
+             "loop. Composes with --skip-*: 'verify --fast "
+             "--skip-lint --skip-diff' is the smallest meaningful "
+             "gate; the full sweep stays the merge/release gate")
     vf.add_argument(
         "--skip-compile", action="store_true",
         help="Omit the compileTestJava tier")

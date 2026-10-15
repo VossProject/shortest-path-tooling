@@ -1806,6 +1806,50 @@ def test_verify_missing_suite_report_names_the_suite(
     assert "f2p-routes" in out
 
 
+def test_verify_fast(tmp_path, monkeypatch, capsys):
+    # --fast narrows only the dashboard tier: one single-suite
+    # canonical smoke invocation — never the all-mode sweep — whose
+    # tier-suffixed bundle still has to carry real runs.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    seen = []
+    real = mm.scan_report
+
+    def spy(path):
+        seen.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(mm, "scan_report", spy)
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 0
+    dashboards = [c for c, _ in calls
+                  if c[:2] == ["./gradlew", "dashboard"]]
+    assert dashboards == [["./gradlew", "dashboard",
+                           "-PdashboardSuite=canonical",
+                           "-PdashboardTier=smoke",
+                           "-PdashboardProfile=false"]]
+    assert [p.parent.name for p in seen] == ["canonical-smoke"]
+    assert "PASS dashboard" in capsys.readouterr().out
+
+    # --fast composes with the --skip-* flags; the dashboard tier is
+    # the only thing it narrows.
+    repo, _, calls = prepare_verify(tmp_path / "narrow", monkeypatch)
+    rc = mm.main(["verify", "--fast", "--skip-lint", "--skip-diff"])
+    assert rc == 0
+    assert not any(c[:4] == ["./gradlew", "-p", "shortest-path", "test"]
+                   for c, _ in calls)
+    assert not any(c[:3] == ["git", "ls-tree", "HEAD"] for c, _ in calls)
+    assert any("-PdashboardTier=smoke" in a for c, _ in calls
+               for a in c)
+
+    # A vacuous smoke report fails the tier — catching exactly this is
+    # the point of the fast path.
+    repo, _, calls = prepare_verify(
+        tmp_path / "empty", monkeypatch, runs_for=lambda csv: [])
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 1
+    assert "empty report" in capsys.readouterr().out
+
+
 def test_verify_compile_failure_marks_tier_but_continues(
         tmp_path, monkeypatch, capsys):
     repo, _, calls = prepare_verify(tmp_path, monkeypatch,
