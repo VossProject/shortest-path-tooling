@@ -313,17 +313,25 @@ public class ConfigParityTest {
     }
 
     /**
-     * A non-default sample of the getter's return type: the flipped boolean,
-     * {@code 7} for ints ({@code 13} when the base already is 7), or the first
-     * enum constant equal to neither side's base.
+     * A non-default sample of the getter's return type equal to neither
+     * side's base — a sample matching a base makes that side's write a
+     * no-op and its half of the parity check vacuous. {@code null} when
+     * no distinguishing sample exists (the caller records a failure).
      */
     private static Object sampleValue(Method m, Object wireBase, Object twinBase) {
         Class<?> type = m.getReturnType();
         if (type == boolean.class) {
-            return !(Boolean) wireBase;
+            boolean flipped = !(Boolean) wireBase;
+            return flipped == (Boolean) twinBase ? null : flipped;
         }
         if (type == int.class) {
-            return Integer.valueOf(7).equals(wireBase) ? 13 : 7;
+            for (int candidate : new int[]{7, 13, 3}) {
+                if (!Integer.valueOf(candidate).equals(wireBase)
+                        && !Integer.valueOf(candidate).equals(twinBase)) {
+                    return candidate;
+                }
+            }
+            return null;
         }
         if (type.isEnum()) {
             for (Object constant : type.getEnumConstants()) {
