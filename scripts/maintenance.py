@@ -29,8 +29,10 @@ Subcommands:
     probes         run every season-discovery cache dumper in
                    sequence; ``--names-file`` adds the name-driven scans
     verify         run the compatibility gate: compileTestJava ->
-                   submodule test -> dashboard sweep over every
-                   committed scenario suite -> collision-map edge-diff
+                   submodule test -> one consolidated dashboard sweep
+                   over every committed scenario suite (``--fast``
+                   narrows it to the canonical suite's smoke tier) ->
+                   collision-map edge-diff
     validate       run the data-validation checks — deterministic hard
                    gate plus advisory drift/season tiers
 """
@@ -1593,8 +1595,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     vf = sub.add_parser(
         "verify",
         help="Run the compatibility gate: compile -> submodule test "
-             "-> dashboard sweep over committed scenario suites -> "
-             "collision-map edge-diff")
+             "-> one consolidated dashboard sweep over committed "
+             "scenario suites -> collision-map edge-diff")
     vf.add_argument(
         "--fast", action="store_true",
         help="Narrow the dashboard tier to the canonical suite's "

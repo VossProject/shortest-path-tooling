@@ -135,8 +135,9 @@ reported without masking the rest.
 ### `verify`
 
 ```bash
-python3 scripts/maintenance.py verify [--skip-compile] [--skip-lint] \
-    [--skip-dashboard] [--skip-diff] [--old-zip a.zip --new-zip b.zip]
+python3 scripts/maintenance.py verify [--fast] [--skip-compile] \
+    [--skip-lint] [--skip-dashboard] [--skip-diff] \
+    [--old-zip a.zip --new-zip b.zip]
 ```
 
 The post-update compatibility gate — four tiers, all always run (a red
@@ -147,19 +148,32 @@ nonzero when any tier fails:
 1. `compileTestJava` — the same compile gate CI runs.
 2. `./gradlew -p shortest-path test` — the submodule's test suite
    (`TransportDataLintTest` et al.).
-3. `dashboard` over every committed scenario suite — named by the
-   committed `src/test/resources/scenarios/expected-lengths/<suite>.json`
-   files, enumerated via `git ls-files`, so gitignored scratch state can
-   never enter the sweep.
+3. `dashboard` — one `./gradlew dashboard -PdashboardSuite=all`
+   invocation runs every committed scenario suite in a single JVM (the
+   suite list comes from `./gradlew -q scenarioIndex`, the Java
+   registry, so gitignored scratch state can never enter the sweep)
+   and publishes each suite's bundle incrementally. Progress streams
+   via the per-suite `--- suite k/N:` boundary lines and the `[i/N]`
+   scenario heartbeats.
    Pass/fail derives solely from each bundle's `report.json` run records
    (`reached` falsy or `assertionPassed` false) — the task sets
-   `ignoreFailures = true`, so Gradle's exit code carries no signal and a
-   missing or unparseable report fails the tier closed.
+   `ignoreFailures = true`, so Gradle's exit code carries no signal and
+   a missing, unparseable, or empty report fails the tier closed,
+   attributed to the suite's slug.
 4. Collision-map edge-diff: the superproject-pinned gitlink artifact vs
    the worktree zip, compared by `compare_collision_maps.py`. Identical
    zips report "no edge changes" and pass; a non-empty diff is review
    evidence, not a failure. `--old-zip`/`--new-zip` (given together)
    override both sides.
+
+`--fast` narrows only the dashboard tier to the canonical suite's
+`smoke` tag — a single `./gradlew dashboard -PdashboardSuite=canonical
+-PdashboardTier=smoke` run whose `canonical-smoke` bundle must still
+contain a non-empty `runs` array (an empty or missing report fails the
+tier — the fast path exists to catch exactly that). It composes with
+the `--skip-*` flags, so `verify --fast --skip-lint --skip-diff` is the
+smallest meaningful signal for the dev loop. The full sweep remains
+the merge/release gate.
 
 Evidence stays under `build/` — `verify` writes no committed log.
 
