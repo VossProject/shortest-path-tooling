@@ -1115,6 +1115,17 @@ def do_verify(args: argparse.Namespace) -> int:
                         "-PdashboardProfile=false"]
                 stems = datasets
         if argv is not None:
+            # Every report the scan below consults must come from this
+            # sweep: a crashed all-run otherwise leaves a previous run's
+            # bundles under the same slugs, which would scan green.
+            # Delete each stem's bundle before the sweep republishes it —
+            # a suite whose turn never comes then fails closed on a
+            # missing report.
+            bundles_dir = (REPO / "build" / "reports" /
+                           "pathfinder-dashboard" / "bundles")
+            for stem in stems:
+                slug = stem.lower().replace("_", "-")
+                shutil.rmtree(bundles_dir / slug, ignore_errors=True)
             hook = _scenario_progress_hook(
                 stems[0] if args.fast else "all")
             run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,

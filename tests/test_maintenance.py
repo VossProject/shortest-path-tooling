@@ -1810,6 +1810,40 @@ def test_verify_missing_suite_report_names_the_suite(
     assert "f2p-routes" in out
 
 
+def test_verify_stale_bundle_never_scans_green(tmp_path, monkeypatch,
+                                              capsys):
+    # A suite the sweep never reached must fail on a missing report —
+    # not pass on the previous run's bundle, which a crashed sweep
+    # would leave under the same slug.  do_verify wipes each stem's
+    # bundle dir before the sweep republishes it.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["f2p-routes"])
+    stale = (repo / "build" / "reports" / "pathfinder-dashboard" /
+             "bundles" / "f2p-routes" / "report.json")
+    write_report(stale, [make_run_record("green last run")])
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "missing or unreadable report" in out
+    assert "f2p-routes" in out
+
+
+def test_verify_fast_wipes_stale_smoke_bundle(tmp_path, monkeypatch,
+                                              capsys):
+    # The --fast path is covered too: the canonical-smoke bundle is
+    # deleted before the narrowed run, so a stale smoke report cannot
+    # substitute for a crashed one.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["canonical"])
+    stale = (repo / "build" / "reports" / "pathfinder-dashboard" /
+             "bundles" / "canonical-smoke" / "report.json")
+    write_report(stale, [make_run_record("green last run")])
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 1
+    assert "missing or unreadable report" in capsys.readouterr().out
+
+
 def test_verify_fast(tmp_path, monkeypatch, capsys):
     # --fast narrows only the dashboard tier: one single-suite
     # canonical smoke invocation — never the all-mode sweep — whose
