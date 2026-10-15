@@ -80,36 +80,55 @@ the rest.
   (#96), POH portal cost/list options (#543, #545).
 - Verdict/`RejectionReason` surfacing — dashboard report, debug overlay,
   panel, and a plugin-message verdict API; needs an owned-state decision.
-- Test-suite rework — the confirmed next milestone: optimise the suite
-  for the middleware architecture.
-- Dependency-rule lint promotion — wire the architectural lint into the
-  verify gate/CI during the test-suite rework.
 - Harness/UI ideas — `leagues/` leaf extraction, POH layout model,
   tooltip UX for rejected transports, path-marker axis, config presets,
   wiki ground-truth coverage, CI scheduling of validation/regeneration.
 
 **Corpus/harness debt:**
 
-- Stale committed expectations in the route datasets (upstream data
-  drift, verified non-regression by control runs) — a recapture cycle
-  plus per-row triage.
 - Ancient Cavern whirlpool row (Skretzo/shortest-path#374) — whirlpool
   taken but the search stops two tiles short; investigate pocket
   sealing vs a missing landing transport.
 - Entrana dungeon wilderness exit (#350) — sealed by an upstream
   collision-map regeneration; investigate correct game data vs regen
   artifact.
-- Parallel-worker determinism replay, profile-adapter work, and a
-  handful of deferred probes.
+- A handful of deferred probes.
 
 **Process debt:** shadow-file lint debt on a few old issue records,
 close-path hardening in the issue-sync tooling, maintenance-script
 modularization, and standing routing policies (new unlock families,
 speculative dumpers, triage routing).
 
+## Resolved during the test-suite rework
+
+The milestone's test-suite-rework pass discharged these register items
+(kept here for provenance; they are no longer open):
+
+- Dependency-boundary lint promotion — the architecture dependency-rule
+  lint is now a blocking tier in the maintenance verify gate and in CI
+  — resolved during the test-suite rework
+- Stale route-dataset expectations — the committed expected lengths were
+  recaptured on the merged state with per-row triage; the mass of reds
+  traced to one harness defect (dead var-bypass overrides), not to
+  routing regressions — resolved during the test-suite rework
+- Parallel-worker determinism replay — a sequential vs pooled A/B over
+  the full corpus produced identical outcome records — resolved during
+  the test-suite rework
+- Corpus account-profiles adapter — corpus routes now compile through
+  the shared account model — resolved during the test-suite rework
+- Wire-vs-harness override-seam unification — superseded by removal: the
+  third dispatch seam was deleted outright in the suite migration, and a
+  parity test pins the two surviving seams — resolved during the
+  test-suite rework
+- The test-suite rework itself — the confirmed next-milestone item is
+  complete — resolved during the test-suite rework
+- F2P/league scenario verification — the harness still lacks
+  members-world and league stubs, so these states stay unverifiable
+  — re-deferred during the test-suite rework
+
 ## Counts
 
-95 open register rows and 28 superseded/resolved marks, swept from 36
+89 open register rows and 34 superseded/resolved marks, swept from 36
 deferred-item sources (per-phase deferred lists, deferred-idea blocks in
 phase notes, the issue residual ledger, state notes, and the integration
 findings ledger). All sources are marked rolled up; this register is the
