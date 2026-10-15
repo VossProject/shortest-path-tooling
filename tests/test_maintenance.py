@@ -1639,7 +1639,8 @@ def test_scan_report_reached_expected_unreachable_is_a_failure(tmp_path):
 
 
 def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
-                    lint_rc=0, dep_lint_rc=0, runs_for=None,
+                    lint_rc=0, dep_lint_rc=0, dashboard_rc=0,
+                    runs_for=None,
                     missing_reports=(), ls_tree_rc=0,
                     gitlink="160000 commit deadbeefcafe\tshortest-path",
                     show_bytes=b"OLDZIP", show_rc=0,
@@ -1680,7 +1681,7 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
                         repo / "build" / "reports" /
                         "pathfinder-dashboard" / "bundles" / slug /
                         "report.json", runs)
-            return cp(cmd, f"dashboard {suite}\n")
+            return cp(cmd, f"dashboard {suite}\n", rc=dashboard_rc)
         if cmd[:2] == ["./gradlew", "compileTestJava"]:
             return cp(cmd, rc=compile_rc)
         if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
@@ -1908,6 +1909,30 @@ def test_verify_missing_report_fails_tier(tmp_path, monkeypatch,
     repo, _, calls = prepare_verify(
         tmp_path, monkeypatch, missing_reports=DASHBOARD_CSVS)
     rc = mm.main(["verify"])
+    assert rc == 1
+    assert "FAIL dashboard" in capsys.readouterr().out
+
+
+def test_verify_dashboard_nonzero_exit_fails_tier(tmp_path, monkeypatch,
+                                                  capsys):
+    # Under ignoreFailures a nonzero dashboard exit can only be
+    # infrastructure failure (compile error, task misconfiguration,
+    # JVM death) — the tier must fail on it even when every scanned
+    # report is green.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, dashboard_rc=1)
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "dashboard sweep exited 1" in out
+
+
+def test_verify_dashboard_nonzero_exit_fast(tmp_path, monkeypatch,
+                                            capsys):
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, dashboard_rc=1)
+    rc = mm.main(["verify", "--fast"])
     assert rc == 1
     assert "FAIL dashboard" in capsys.readouterr().out
 

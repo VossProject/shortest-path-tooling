@@ -1128,11 +1128,18 @@ def do_verify(args: argparse.Namespace) -> int:
                 shutil.rmtree(bundles_dir / slug, ignore_errors=True)
             hook = _scenario_progress_hook(
                 stems[0] if args.fast else "all")
-            run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
-                stream=True, on_line=hook)
+            proc = run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
+                       stream=True, on_line=hook)
             hook.close()
-        # ignoreFailures makes the Gradle exit code meaningless — each
-        # suite's report.json is scanned individually, so a bundle
+            # ignoreFailures turns scenario failures into report
+            # records, so a nonzero exit can only be infrastructure
+            # failure — test-class compilation, task misconfiguration,
+            # or worker JVM death.  Fail the tier on it; the report
+            # scan alone cannot see a JVM that died outright.
+            if proc.returncode != 0:
+                failures.append(
+                    f"dashboard sweep exited {proc.returncode}")
+        # Each suite's report.json is scanned individually, so a bundle
         # that is missing, malformed, or empty still fails the tier
         # attributed by slug.
         for stem in stems:
