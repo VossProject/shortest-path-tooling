@@ -100,9 +100,9 @@ committed summary is [DEFERRED.md](DEFERRED.md).
 
 ## What remains
 
-- **Maintainer review and merge authorization.** All twenty PRs remain
-  open pending review; merging stays gated on the owner's explicit
-  go-ahead.
+- **Maintainer review and merge authorization.** All twenty-one PRs
+  remain open pending review; merging stays gated on the owner's
+  explicit go-ahead.
 - **PR-body boundary references.** Five bodies (#707, #708, #709, #710,
   #711) do not yet carry the architecture-boundary reference — recorded
   for a merge-time body pass rather than rewritten in flight.
@@ -117,7 +117,8 @@ committed summary is [DEFERRED.md](DEFERRED.md).
 - **Follow-up test-suite rework.** Landed as draft PR #807 (branch
   `test/suite-rework`, consolidated test-only diff), stacked on #711 at
   the stack tip and merged into the `1.22.0` integration branch — the
-  milestone's test-side debt is now upstream-visible pending review.
+  tooling pin sits at the merged head `6278a633`, so the milestone's
+  test-side debt is upstream-visible pending review.
 
 ## Merge choreography — per-merge restack and re-pin
 
