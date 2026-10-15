@@ -1,0 +1,164 @@
+{
+  "benchmarkNowMinutes": 100000000,
+  "formatVersion": 1,
+  "profiles": {
+    "early": {
+      "bank": {
+        "995": 100,
+        "1704": 1
+      },
+      "completedQuests": [
+        "Another Slice of H.A.M.",
+        "Biohazard",
+        "Bone Voyage",
+        "Children of the Sun",
+        "Client of Kourend",
+        "Creature of Fenkenstrain",
+        "Death to the Dorgeshuun",
+        "Dragon Slayer I",
+        "Enter the Abyss",
+        "Garden of Tranquillity",
+        "Haunted Mine",
+        "Holy Grail",
+        "In Search of the Myreque",
+        "Lost City",
+        "Monkey Madness I",
+        "Nature Spirit",
+        "Observatory Quest",
+        "Plague City",
+        "Priest in Peril",
+        "Regicide",
+        "Sea Slug",
+        "Shades of Mort'ton",
+        "Tai Bwo Wannai Trio",
+        "The Corsair Curse",
+        "The Fremennik Trials",
+        "The Giant Dwarf",
+        "The Grand Tree",
+        "The Lost Tribe",
+        "Tree Gnome Village",
+        "Twilight's Promise",
+        "Watchtower",
+        "Architectural Alliance"
+      ],
+      "diaries": {
+        "Ardougne": "Medium",
+        "Desert": "NoDiary",
+        "Falador": "NoDiary",
+        "Fremennik": "NoDiary",
+        "Kandarin": "NoDiary",
+        "Karamja": "NoDiary",
+        "KourendKebos": "NoDiary",
+        "LumbridgeDraynor": "NoDiary",
+        "Morytania": "NoDiary",
+        "Varrock": "NoDiary",
+        "WesternProvinces": "NoDiary",
+        "Wilderness": "NoDiary"
+      },
+      "equipment": {
+        "1704": 5
+      },
+      "fairyRingsUnlocked": true,
+      "inventory": {
+        "995": 50,
+        "772": 1
+      },
+      "levels": {
+        "Agility": 70,
+        "Attack": 70,
+        "Hitpoints": 75,
+        "Strength": 75
+      },
+      "plantedSpiritTrees": [],
+      "poh": {
+        "fairyRing": false,
+        "jewelleryBox": "NoJewelleryBox",
+        "location": "Rimmington",
+        "mountedDigsite": false,
+        "mountedGlory": false,
+        "mountedMythical": false,
+        "mountedXerics": false,
+        "obelisk": false,
+        "portals": {
+          "destinations": [
+            "Varrock Portal"
+          ],
+          "mode": "selected"
+        },
+        "spiritTree": false
+      },
+      "runePouch": {
+        "554": 1000
+      },
+      "runtime": {
+        "arriveInsidePoh": true,
+        "minigameTeleport": {
+          "state": "ready"
+        },
+        "spellbook": "Standard"
+      },
+      "varbits": {
+        "532": 12
+      },
+      "varplayers": {
+        "888": 99999979
+      }
+    },
+    "late-mini": {
+      "bank": {
+        "8013": 1000
+      },
+      "completedQuests": [
+        "Dragon Slayer I",
+        "Song of the Elves",
+        "The Tale of the Righteous"
+      ],
+      "diaries": {
+        "LumbridgeDraynor": "Elite",
+        "Varrock": "Hard"
+      },
+      "equipment": {},
+      "fairyRingsUnlocked": true,
+      "inventory": {},
+      "levels": {
+        "Magic": 99,
+        "Quest": 327,
+        "Total": 2376
+      },
+      "plantedSpiritTrees": [
+        "FARMING_GUILD",
+        "PORT_SARIM"
+      ],
+      "poh": {
+        "fairyRing": true,
+        "jewelleryBox": "OrnateJewelleryBox",
+        "location": "Yanille",
+        "mountedDigsite": true,
+        "mountedGlory": true,
+        "mountedMythical": true,
+        "mountedXerics": true,
+        "obelisk": true,
+        "portals": {
+          "destinations": [],
+          "mode": "all"
+        },
+        "spiritTree": true
+      },
+      "runePouch": {},
+      "runtime": {
+        "arriveInsidePoh": false,
+        "minigameTeleport": {
+          "state": "usedAt",
+          "minutes": 99999900
+        },
+        "spellbook": "Lunar"
+      },
+      "varbits": {
+        "4495": 1
+      },
+      "varplayers": {
+        "150": 160
+      }
+    }
+  }
+}
