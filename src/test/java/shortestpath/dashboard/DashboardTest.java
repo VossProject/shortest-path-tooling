@@ -267,10 +267,26 @@ public class DashboardTest {
         }
 
         List<PathfinderDashboardModels.RunRecord> runs = new ArrayList<>(n);
-        for (PathfinderDashboardModels.RunRecord r : results) {
-            if (r != null) {
-                runs.add(r);
+        for (int i = 0; i < results.length; i++) {
+            PathfinderDashboardModels.RunRecord r = results[i];
+            if (r == null) {
+                // A null slot means a worker died mid-scenario — the
+                // pool.submit wrapper's catch (Throwable) only reached
+                // stderr, losing every scenario still queued behind it.
+                // Fill the slot with a counted, attributed failure so
+                // the report can never read as complete coverage.
+                Scenario scenario = scenarios.get(i);
+                r = new PathfinderDashboardModels.RunRecord();
+                r.name = scenario.getName();
+                r.category = scenario.getCategory() != null && !scenario.getCategory().isEmpty()
+                    ? scenario.getCategory()
+                    : "dashboard";
+                r.reached = false;
+                r.expectedReachable = scenario.isExpectedReachable();
+                r.assertionPassed = false;
+                r.assertionMessage = "no result recorded — a worker thread terminated mid-scenario";
             }
+            runs.add(r);
         }
 
         PathfinderDashboardModels.Report report = reportWriter.createReport(
@@ -279,6 +295,10 @@ public class DashboardTest {
             System.currentTimeMillis() - started,
             runs,
             reportWriter.createTransportLayerPointsAlwaysAvailable());
+        // The scenario count the sweep scheduled — lets report.json
+        // consumers (scan_report) verify coverage rather than trusting
+        // totalRuns, which counts only the records that exist.
+        report.summary.expectedRuns = n;
         report.bankNamesFromData = BankDestinationLabels.uniqueSortedBankNames();
         // Tag seasonal bundles so the frontend knows to draw the league
         // region overlay. We treat any bundle whose name starts with
@@ -347,6 +367,18 @@ public class DashboardTest {
                 PathfinderProfile profileData = observation.getProfile();
 
                 if (result == null) {
+                    // A null result must still surface in report.json
+                    // (the sweep's only pass/fail surface) as a counted
+                    // failure — dropping the slot would read as full
+                    // coverage.
+                    PathfinderDashboardModels.RunRecord failure = new PathfinderDashboardModels.RunRecord();
+                    failure.name = scenario.getName();
+                    failure.category = category;
+                    failure.reached = false;
+                    failure.expectedReachable = scenario.isExpectedReachable();
+                    failure.assertionPassed = false;
+                    failure.assertionMessage = "scenario produced no result";
+                    results[i] = failure;
                     synchronized (HEARTBEAT_LOCK) {
                         System.out.printf("[%2d/%-2d] ✖ %s  NO_RESULT%n",
                             completed.incrementAndGet(), n, scenario.getName());

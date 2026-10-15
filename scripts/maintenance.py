@@ -952,6 +952,16 @@ def scan_report(path: Path) -> List[str]:
     if not runs:
         return [f"empty report: {path}"]
     failures = []
+    # A report that declares how many scenarios it expected must carry
+    # that many run records — totalRuns counts only what exists, so a
+    # dropped slot would otherwise read as full coverage.
+    summary = data.get("summary")
+    if isinstance(summary, dict):
+        expected = summary.get("expectedRuns")
+        if type(expected) is int and expected != len(runs):
+            failures.append(
+                f"{len(runs)} run record(s) for {expected} expected "
+                f"in {path}")
     for r in runs:
         if not isinstance(r, dict):
             failures.append(f"malformed run record in {path}")

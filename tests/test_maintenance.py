@@ -1638,6 +1638,24 @@ def test_scan_report_reached_expected_unreachable_is_a_failure(tmp_path):
         "reach: Expected unreachable but path found"]
 
 
+def test_scan_report_flags_expected_runs_mismatch(tmp_path):
+    # summary.expectedRuns declares the scenario count the sweep
+    # scheduled; fewer records is dropped coverage, not a green run.
+    report = write_report(tmp_path / "report.json", [make_run_record()])
+    data = json.loads(report.read_text())
+    data["summary"] = {"expectedRuns": 2}
+    report.write_text(json.dumps(data))
+    failures = mm.scan_report(report)
+    assert failures and "2" in failures[0]
+    # A matching count stays green; an absent field is skipped.
+    data["summary"]["expectedRuns"] = 1
+    report.write_text(json.dumps(data))
+    assert mm.scan_report(report) == []
+    del data["summary"]["expectedRuns"]
+    report.write_text(json.dumps(data))
+    assert mm.scan_report(report) == []
+
+
 def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
                     lint_rc=0, dep_lint_rc=0, dashboard_rc=0,
                     runs_for=None,
