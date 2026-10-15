@@ -2,6 +2,7 @@ package shortestpath.profiles;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.io.InputStream;
@@ -119,22 +120,27 @@ public final class CorpusAccountProfiles {
             throw new UncheckedIOException("cannot read account profiles from " + file, e);
         } catch (IllegalStateException e) {
             throw new IllegalArgumentException(file + " is not a JSON object", e);
+        } catch (JsonParseException e) {
+            throw new IllegalArgumentException(file + " is not valid JSON", e);
         }
         return parse(root);
     }
 
     /** Loads a corpus account-profiles file from the test classpath. */
     public static Map<String, Account> loadResource(String resource) {
-        InputStream stream = CorpusAccountProfiles.class.getResourceAsStream(resource);
-        if (stream == null) {
-            throw new IllegalArgumentException("no classpath resource: " + resource);
-        }
         JsonObject root;
-        try {
+        try (InputStream stream = CorpusAccountProfiles.class.getResourceAsStream(resource)) {
+            if (stream == null) {
+                throw new IllegalArgumentException("no classpath resource: " + resource);
+            }
             root = JsonParser.parseReader(new InputStreamReader(stream, StandardCharsets.UTF_8))
                 .getAsJsonObject();
         } catch (IllegalStateException e) {
             throw new IllegalArgumentException(resource + " is not a JSON object", e);
+        } catch (JsonParseException e) {
+            throw new IllegalArgumentException(resource + " is not valid JSON", e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read " + resource, e);
         }
         return parse(root);
     }
@@ -279,6 +285,15 @@ public final class CorpusAccountProfiles {
         switch (mode) {
             case "all":
                 destinations = null;
+                // mode "all" ignores the list — a non-empty destinations
+                // member contradicts it and is rejected like the format's
+                // other dead weight.
+                if (portals.has("destinations")
+                        && !(portals.get("destinations").isJsonArray()
+                            && portals.getAsJsonArray("destinations").size() == 0)) {
+                    throw new IllegalArgumentException("profile " + profile
+                        + ": portals mode 'all' ignores the destinations member");
+                }
                 break;
             case "selected":
                 destinations = new ArrayList<>();
