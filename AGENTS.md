@@ -160,10 +160,6 @@ belong to the submodule's branch/PR flow, not this repo.
 
 ## Upstream PR workflow
 
-The upstream maintainer reviews at a deliberate pace and has flagged
-the submission pace as rushed — requirement-satisfaction logic is
-spread across several places, so subtle changes are expensive to review.
-
 - Changes to requirement satisfaction, eligibility, or
   `usable()`/`useTransport` semantics must include adversarial tests:
   null/empty requirement branches, OR-vs-AND combinations, and every

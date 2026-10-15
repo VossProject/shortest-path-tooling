@@ -2,8 +2,8 @@
 
 The dependency-ordered list of middleware extractions for the plugin: which
 subsystem moves when, and what each move touches. Technical order is strict;
-upstream PR publication runs on a separate lane gated by review headroom —
-integration timing decouples from merge timing. The subsystem inventory
+upstream PR publication runs on a separate lane gated by upstream merge
+state — integration timing decouples from merge timing. The subsystem inventory
 lives in [architecture-survey.md](architecture-survey.md); the target
 structure in [architecture-target.md](architecture-target.md).
 
@@ -57,9 +57,9 @@ concrete edge it rests on, not a restatement of the hypothesis.
 ## Publication lane
 
 The technical order above is strict — each row builds on seams the rows
-above it publish. Merge timing is a separate lane: the upstream maintainer
-reviews deliberately, so the next extraction PR is published only as
-stack headroom opens rather than the moment its code is ready.
+above it publish. Merge timing is a separate lane: each extraction PR is
+published once its predecessor's state permits restacking, not the moment
+its code is ready.
 
 - Every extraction PR stacks on its predecessor upstream. The fork's
   `1.22.0` version-accumulation branch carries all landed and in-flight

@@ -1066,23 +1066,24 @@ def do_verify(args: argparse.Namespace) -> int:
         t0 = timed_tier("lint")
         failures = []
         # The whole submodule test task — strictly more coverage than
-        # *LintTest alone, and it carries the submodule boundary lints
-        # (RequirementPackageBoundaryTest, AStarPackageDependencyTest).
+        # *LintTest alone, and it carries all three boundary lints
+        # (RequirementPackageBoundaryTest, AStarPackageDependencyTest,
+        # PluginDependencyRuleTest) — every seam rule lives inside the
+        # plugin repo so it fails for contributors working there
+        # directly, not only through this harness.
         proc = run(["./gradlew", "-p", "shortest-path", "test"],
                    cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
         if proc.returncode != 0:
             failures.append(
                 f"submodule test exited {proc.returncode}")
-        # The harness-side dependency rule lives in this repo's test
-        # tree, outside the submodule blob — it gets its own named
-        # --tests filter.  The qualified ':test' path matters: a bare
-        # 'test' would also run :accounts:test, which fails the same
-        # no-match check on a filter that only exists in the root
-        # project.  Gradle exits nonzero with "No tests found for
-        # given includes" when a filter matches nothing, so the gate
-        # can never pass on an empty selection.
-        proc = run(["./gradlew", ":test", "--tests",
-                    "shortestpath.PluginDependencyRuleTest"],
+        # The dependency-rule lint rides the submodule blob above, but
+        # the tier also names it in its own --tests filter so a renamed
+        # or removed lint class fails the gate rather than silently
+        # thinning coverage.  Gradle exits nonzero with "No tests found
+        # for given includes" when a filter matches nothing, so the
+        # gate can never pass on an empty selection.
+        proc = run(["./gradlew", "-p", "shortest-path", "test",
+                    "--tests", "shortestpath.PluginDependencyRuleTest"],
                    cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
         if proc.returncode != 0:
             failures.append(

@@ -43,8 +43,8 @@ cake. Every extraction copies the same rules:
 - **Self-subscribing services** — each service registering directly on the
   RuneLite event bus reintroduces implicit tick ordering; today's handler
   sequence (snapshot capture before invalidation, scheduler calls last) is
-  deliberate and would become unreviewable if it were smeared across
-  subscriber registration order.
+  deliberate; smearing it across subscriber registration order would lose
+  it.
 - **Internal domain-event bus** — an invented publish/subscribe layer adds
   infrastructure nothing else needs and confuses the thread story (which
   thread publishes, which consumes). The client already has an event bus;
@@ -79,8 +79,12 @@ Widening the parameter to `net.runelite.client.plugins.Plugin` is a
 post-merge cleanup: the file is owned by mid-stack branches, so landing
 the two-line fix now would re-diff those pull requests.
 
-Enforcement is `PluginDependencyRuleTest`, a source-scan lint over the
-submodule sources, run with `./gradlew test --tests '*DependencyRule*'`.
+Enforcement is `PluginDependencyRuleTest`, a source-scan lint that
+lives in the plugin repo's own test tree — `./gradlew test --tests
+'*DependencyRule*'` inside `shortest-path/` — alongside the
+requirement and A* package-boundary lints, so the seams are enforced
+for anyone working in the plugin repo directly, not only through the
+composite harness.
 Four scans ratchet the boundary:
 
 - the `ShortestPathPlugin.` dotted-token census against the (now empty)
@@ -107,7 +111,7 @@ decision.
 ### The gate-verdict contract stays test-only
 
 `Requirements.check(...)` stays package-private and the `RejectionReason`
-enum — nineteen constants — remains internal review instrumentation. Any
+enum — nineteen constants — remains internal instrumentation. Any
 consumer outside tests is an API widening: a real change dressed as a
 refactor, which would break the zero-delta attestation every extraction
 relies on. The cheapest legitimate future consumer is per-gate rejection
@@ -266,8 +270,8 @@ producers watch game state on the client thread and publish immutable
 facts; the coordinator hears "what changed" and is the scheduler's only
 caller; the engine consumes snapshots on the worker thread; presentation
 reads published handles on the render thread. The remaining distance is
-the `DebugOverlayPanel` constructor seam and whatever the maintainer asks
-to reshape on review — not missing structure.
+the `DebugOverlayPanel` constructor seam and the registered upstream
+follow-ups — not missing structure.
 
 ```mermaid
 flowchart TD
@@ -365,9 +369,8 @@ Each subsystem's disposition, kept in three distinct states: **stack** —
 carried by an open upstream draft pull request; **on `1.22.0`** —
 accumulated on the integration branch; **merged upstream** — landed in
 the upstream repository itself. Nothing has merged upstream: every stack
-pull request is open and awaiting maintainer review — nearly all are
-drafts, and they stay maintainer-paced — so that column reads pending
-throughout.
+pull request is open — nearly all are drafts — so that column reads
+pending throughout.
 
 | Subsystem | Home on the integrated tip | Stack PR | On `1.22.0` | Merged upstream |
 |-----------|----------------------------|----------|-------------|-----------------|

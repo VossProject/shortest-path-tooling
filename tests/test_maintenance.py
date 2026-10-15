@@ -1702,10 +1702,11 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
             return cp(cmd, f"dashboard {suite}\n", rc=dashboard_rc)
         if cmd[:2] == ["./gradlew", "compileTestJava"]:
             return cp(cmd, rc=compile_rc)
+        if cmd[:5] == ["./gradlew", "-p", "shortest-path", "test",
+                       "--tests"]:
+            return cp(cmd, rc=dep_lint_rc)
         if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
             return cp(cmd, rc=lint_rc)
-        if cmd[:3] == ["./gradlew", ":test", "--tests"]:
-            return cp(cmd, rc=dep_lint_rc)
         if cmd[0] == sys.executable:
             return cp(cmd, diff_stdout, rc=diff_rc)
         raise AssertionError(f"unexpected argv: {cmd}")
@@ -1735,8 +1736,6 @@ def verify_kind(cmd):
     if cmd[:2] == ["./gradlew", "compileTestJava"]:
         return "compile"
     if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
-        return "lint"
-    if cmd[:3] == ["./gradlew", ":test", "--tests"]:
         return "lint"
     if cmd[0] == sys.executable:
         return "compare"
@@ -2087,9 +2086,9 @@ def test_verify_skip_flags(tmp_path, monkeypatch):
     assert mm.main(["verify", "--skip-lint"]) == 0
     assert not any(c[:4] == ["./gradlew", "-p", "shortest-path",
                              "test"] for c, _ in calls)
-    # --skip-lint also omits the harness dep-lint leg — same tier.
-    assert not any(c[:3] == ["./gradlew", ":test", "--tests"]
-                   for c, _ in calls)
+    # --skip-lint also omits the named dep-lint leg — same tier.
+    assert not any(c[:5] == ["./gradlew", "-p", "shortest-path", "test",
+                             "--tests"] for c, _ in calls)
 
     repo, _, calls = prepare_verify(tmp_path / "d", monkeypatch)
     assert mm.main(["verify", "--skip-diff"]) == 0
@@ -2100,22 +2099,22 @@ def test_verify_skip_flags(tmp_path, monkeypatch):
 
 def test_verify_runs_dep_lint(tmp_path, monkeypatch):
     # The lint tier issues the named dependency-rule filter after the
-    # submodule blob — PluginDependencyRuleTest lives in this repo's
-    # test tree, outside the -p shortest-path suite.
+    # submodule blob — PluginDependencyRuleTest now lives inside the
+    # plugin repo's own test tree, so the same -p shortest-path task
+    # runs it; the named filter stays so a renamed class fails the
+    # gate on Gradle's no-match check.
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
     rc = mm.main(["verify"])
     assert rc == 0
     kinds = [verify_kind(c) for c, _ in calls]
-    # The qualified ':test' path matters — a bare 'test' also selects
-    # :accounts:test, which would fail the no-match check on a filter
-    # that only exists in the root project.
-    assert ["./gradlew", ":test", "--tests",
+    assert ["./gradlew", "-p", "shortest-path", "test", "--tests",
             "shortestpath.PluginDependencyRuleTest"] in [
         c for c, _ in calls]
     # Both legs land in the lint tier, submodule blob first.
     lints = [c for c, _ in calls if verify_kind(c) == "lint"]
     assert lints[0][:4] == ["./gradlew", "-p", "shortest-path", "test"]
-    assert lints[1][:3] == ["./gradlew", ":test", "--tests"]
+    assert lints[1][:5] == ["./gradlew", "-p", "shortest-path", "test",
+                           "--tests"]
 
 
 def test_verify_dep_lint_failure_fails_lint_tier(tmp_path, monkeypatch,

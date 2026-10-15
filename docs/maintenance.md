@@ -147,15 +147,17 @@ nonzero when any tier fails:
 
 1. `compileTestJava` — the same compile gate CI runs.
 2. `lint` — `./gradlew -p shortest-path test`, the submodule's test
-   suite (`TransportDataLintTest` et al., including the
-   package-boundary lints `RequirementPackageBoundaryTest` and
-   `AStarPackageDependencyTest`), then `./gradlew :test --tests
-   'shortestpath.PluginDependencyRuleTest'`, the harness-side
-   dependency rule. Both legs must exit 0. The qualified `:test` path
-   keeps the filter off `:accounts:test`, and Gradle fails a
-   `--tests` selection that matches no class, so the named filter can
-   never pass vacuously. CI carries the same gate as a
-   `Dependency boundary lint` step in the build job.
+   suite (`TransportDataLintTest` et al., including the three
+   boundary lints `RequirementPackageBoundaryTest`,
+   `AStarPackageDependencyTest`, and `PluginDependencyRuleTest`), then
+   a named `--tests shortestpath.PluginDependencyRuleTest` filter as a
+   second leg. All three lints live inside the plugin repo, so the
+   seam rules fail for contributors working in `shortest-path`
+   directly — not only through this harness. The named filter keeps
+   the gate honest if the class is ever renamed: Gradle fails a
+   `--tests` selection that matches no class. CI carries the same
+   three filters as a `Dependency boundary lint` step in the build
+   job.
 3. `dashboard` — one `./gradlew dashboard -PdashboardSuite=all`
    invocation runs every committed scenario suite in a single JVM (the
    suite list comes from `./gradlew -q scenarioIndex`, the Java
@@ -358,8 +360,8 @@ For a reported transport/routing bug that resolves to a TSV fix:
   consumer merges — `regions --f2p` forces the copy for feature-branch
   work.
 - Verification evidence is ephemeral `build/` output — there is no
-  committed verification log; weekly verification is for the maintainer's
-  own confidence.
+  committed verification log; weekly verification is a confidence pass
+  for upstream-facing work.
 - In-game smoke testing is the conditional manual tier: reserve it for
   release gates and API-touching updates. The RuneLite client cannot be
   automated, so it is deliberately not part of `verify`.

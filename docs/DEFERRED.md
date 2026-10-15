@@ -12,7 +12,7 @@ the rest.
 
 | class | meaning |
 |-------|---------|
-| `upstream-blocked` | waiting on an upstream merge or maintainer decision |
+| `upstream-blocked` | waiting on an upstream merge or decision |
 | `upstream-followup` | needs its own upstream PR / follow-up after merges |
 | `post-milestone-feature` | feature work scheduled after this milestone |
 | `corpus/harness-debt` | test-corpus staleness or harness capability debt |
@@ -105,8 +105,10 @@ The milestone's test-suite-rework pass discharged these register items
 (kept here for provenance; they are no longer open):
 
 - Dependency-boundary lint promotion — the architecture dependency-rule
-  lint is now a blocking tier in the maintenance verify gate and in CI
-  — resolved during the test-suite rework
+  lint is now a blocking tier in the maintenance verify gate and in CI,
+  and it lives inside the plugin repo's own test suite so it enforces
+  the seams for direct contributors there too — resolved during the
+  test-suite rework
 - Stale route-dataset expectations — the committed expected lengths were
   recaptured on the merged state with per-row triage; the mass of reds
   traced to one harness defect (dead var-bypass overrides), not to

@@ -55,19 +55,17 @@ jobs:
 
 
       - name: Dependency boundary lint
-        # The harness-side rule plus the two submodule package-boundary
-        # lints, as named --tests filters — CI never runs the submodule
-        # suite, so they get their own step. Both legs run even when the
-        # first is red; Gradle fails a --tests filter that matches no
-        # class, so neither leg can pass vacuously.
+        # All three boundary lints live in the plugin repo's own test
+        # tree, so they ride the submodule suite and are enforceable for
+        # contributors working there directly. CI never runs that whole
+        # suite, so they get their own named --tests filters; Gradle
+        # fails a filter that matches no class, so the step cannot pass
+        # vacuously.
         run: |
-          rc=0
-          ./gradlew :test --stacktrace \
-            --tests 'shortestpath.PluginDependencyRuleTest' || rc=1
           ./gradlew -p shortest-path test --stacktrace \
+            --tests 'shortestpath.PluginDependencyRuleTest' \
             --tests 'shortestpath.requirement.RequirementPackageBoundaryTest' \
-            --tests 'shortestpath.pathfinder.astar.AStarPackageDependencyTest' || rc=1
-          exit $rc
+            --tests 'shortestpath.pathfinder.astar.AStarPackageDependencyTest'
         shell: bash
 
       - name: Run a light benchmark through the adapter

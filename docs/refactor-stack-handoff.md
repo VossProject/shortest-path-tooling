@@ -22,10 +22,9 @@ the move order is [extraction-sequence.md](extraction-sequence.md).
 Twenty-one pull requests carry the stack upstream, stacked base-to-tip —
 the twenty-first is the consolidated test-suite rework appended after the
 refactor's tip.
-**No stack PR has merged upstream — every one remains open awaiting
-maintainer review, and all but the stack root are drafts by design.**
-Merge timing is maintainer-paced; nothing here asserts readiness on the
-reviewer's behalf.
+**No stack PR has merged upstream — every one remains open, and all but
+the stack root are drafts by design.** Merge timing is upstream's lane;
+nothing here asserts readiness on the reviewer's behalf.
 
 | # | PR | Purpose | Base |
 |---|----|---------|------|
@@ -54,8 +53,10 @@ reviewer's behalf.
 Chain shape: #707 is the root; #709/#710 are a short fork off #708 (the
 issue-#636 work); the main line continues #708 → #716 → … → #711.
 The integrated branch pair — tooling `1.22.0` pinning submodule `1.22.0`
-at `6278a633` — accumulates all twenty-one in chain order regardless of
-merge timing.
+at `099c7ff2` — accumulates all twenty-one in chain order regardless of
+merge timing. The submodule branch is a **linear stack**: one commit per
+PR in chain order (`stack: #707 … stack: #807`), no merge commits, so its
+history reads as the chain rather than integration plumbing.
 
 ## Merge-readiness evidence
 
@@ -88,8 +89,8 @@ or data surface).
   failures.
 - **CI sweep.** All 38 open stack PRs (20 plugin + 18 paired tooling
   PRs) carry zero failing/cancelled/timed-out checks. Stack-root #707
-  shows a merge-conflict flag against the upstream tip — a
-  maintainer-paced rebase item, not a check failure.
+  shows a merge-conflict flag against the upstream tip — an
+  upstream-side rebase item, not a check failure.
 
 ## Deferred work
 
@@ -100,9 +101,9 @@ committed summary is [DEFERRED.md](DEFERRED.md).
 
 ## What remains
 
-- **Maintainer review and merge authorization.** All twenty-one PRs
-  remain open pending review; merging stays gated on the owner's
-  explicit go-ahead.
+- **Upstream review and merge authorization.** All twenty-one PRs
+  remain open pending review; merging stays gated on upstream's
+  go-ahead.
 - **PR-body boundary references.** Five bodies (#707, #708, #709, #710,
   #711) do not yet carry the architecture-boundary reference — recorded
   for a merge-time body pass rather than rewritten in flight.
@@ -116,8 +117,8 @@ committed summary is [DEFERRED.md](DEFERRED.md).
   because landing it mid-stack would re-diff every descendant PR.
 - **Follow-up test-suite rework.** Landed as draft PR #807 (branch
   `test/suite-rework`, consolidated test-only diff), stacked on #711 at
-  the stack tip and merged into the `1.22.0` integration branch — the
-  tooling pin sits at the merged head `6278a633`, so the milestone's
+  the stack tip and stacked into the `1.22.0` integration branch — the
+  tooling pin sits at the linear head `099c7ff2`, so the milestone's
   test-side debt is upstream-visible pending review.
 
 ## Merge choreography — per-merge restack and re-pin
