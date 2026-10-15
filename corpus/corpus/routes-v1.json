@@ -585,6 +585,9 @@
     "tiers": [
       "standard",
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -3470,6 +3473,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -4568,6 +4574,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -4976,6 +4985,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -5830,6 +5842,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -6479,6 +6494,9 @@
     "tiers": [
       "standard",
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -6950,6 +6968,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -7131,6 +7152,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -7850,6 +7874,9 @@
     "tiers": [
       "standard",
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -8434,6 +8461,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -9840,6 +9870,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -10455,6 +10488,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -11449,6 +11485,9 @@
     "tiers": [
       "standard",
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -12418,6 +12457,9 @@
     "tiers": [
       "standard",
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -13510,6 +13552,10 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early",
+      "mid"
     ]
   },
   {
@@ -14188,6 +14234,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -15479,6 +15528,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -15973,6 +16025,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
@@ -16128,6 +16183,9 @@
     "allowTransports": true,
     "tiers": [
       "full"
+    ],
+    "negativeProfiles": [
+      "early"
     ]
   },
   {
