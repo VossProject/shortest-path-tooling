@@ -60,6 +60,33 @@ public class ScenariosTest {
         }
     }
 
+    /**
+     * A {@code negativeProfiles} entry only takes effect for profiles the
+     * route actually runs (its {@code profiles} override, else the suite's
+     * list). A mark naming anything else is dead weight — usually a typo —
+     * and must fail loudly rather than silently assert nothing.
+     */
+    @Test
+    public void negativeProfilesLandOnProfilesTheRouteRuns() throws IOException {
+        assertNegativeMarksLand(
+            Route.loadResource("/scenarios/clue-locations.json"), List.of("ALL"));
+        assertNegativeMarksLand(
+            CanonicalCorpus.routes(CanonicalCorpus.dir()),
+            List.copyOf(Profiles.canonicalNames()));
+    }
+
+    private static void assertNegativeMarksLand(List<Route> routes, List<String> suiteProfiles) {
+        for (Route route : routes) {
+            Set<String> runs = new HashSet<>(
+                route.getProfiles() != null ? route.getProfiles() : suiteProfiles);
+            for (String mark : route.getNegativeProfiles()) {
+                assertTrue(route.getId() + ": negativeProfiles mark '" + mark
+                    + "' names no profile the route runs " + runs,
+                    runs.contains(mark));
+            }
+        }
+    }
+
     @Test
     public void expectedLengthsNameExistingScenarios() throws IOException {
         for (String suite : Suites.names()) {
