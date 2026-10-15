@@ -34,6 +34,11 @@ import shortestpath.accounts.Unlock;
  * ({@code formatVersion: 1}); the committed fixture under
  * {@code src/test/resources/profiles/} keeps tests hermetic.
  *
+ * <p>The file is not vendored into this repo — the canonical accounts here stay Java-only
+ * ({@code CanonicalAccounts}), matching the corpus README's convention. Consumers pass a
+ * {@link Path} to wherever their corpus checkout lives; {@link #loadResource(String)} covers the
+ * committed fixture so tests do not depend on the sibling checkout's presence.
+ *
  * <p>This is a pure data mapping: it knows the JSON field names and which builder call each one
  * feeds, and nothing about what a fact means — compiling facts into varbits and varplayers is
  * {@code AccountCompiler}'s job. The {@code varbits}/{@code varplayers} members are passed
