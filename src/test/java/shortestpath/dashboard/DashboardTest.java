@@ -6,7 +6,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -55,7 +57,10 @@ import shortestpath.scenarios.Suites;
  * <h3>System properties</h3>
  * <table>
  *   <tr><th>Property</th><th>Default</th></tr>
- *   <tr><td>{@code dashboard.suite}</td><td>{@code routes} (see {@link Suites})</td></tr>
+ *   <tr><td>{@code dashboard.suite}</td><td>{@code routes} (see {@link Suites});
+ *       {@code all} runs every suite in {@link Suites#names()} inside this one JVM,
+ *       publishing each suite's bundle as it finishes. Ignored when
+ *       {@code dashboard.dataset} is set — a dataset file still wins.</td></tr>
  *   <tr><td>{@code dashboard.dataset}</td><td>unset; a route file
  *       ({@link shortestpath.scenarios.Route}) to run instead of a suite</td></tr>
  *   <tr><td>{@code dashboard.bundleName}</td><td>{@code routes}</td></tr>
@@ -90,6 +95,8 @@ public class DashboardTest {
     private static final String TIER_PROPERTY = "dashboard.tier";
     private static final String BUNDLE_NAME_PROPERTY = DashboardBundlePublisher.BUNDLE_NAME_PROPERTY;
     private static final String DEFAULT_SUITE = "routes";
+    /** {@code dashboard.suite} sentinel running every suite in {@link Suites#names()} in one JVM. */
+    private static final String ALL_SUITES = "all";
     private static final int MAX_SCENARIOS = Integer.getInteger("reachability.maxTargets", 10000);
     /**
      * Profiling is auto-disabled above this scenario count unless
@@ -133,14 +140,62 @@ public class DashboardTest {
     public void run() throws IOException, InterruptedException {
         String file = System.getProperty(DATASET_PROPERTY, "");
         String suite = file.isEmpty() ? System.getProperty(SUITE_PROPERTY, DEFAULT_SUITE) : null;
+        if (suite != null && ALL_SUITES.equalsIgnoreCase(suite)) {
+            runAllSuites();
+            return;
+        }
         String dataset = suite != null ? suite : file;
+        runDashboard(dataset, suite,
+            System.getProperty(BUNDLE_NAME_PROPERTY, "routes"),
+            System.getProperty("dashboard.title", "Dashboard"),
+            System.getProperty("dashboard.subtitle", datasetLabel(dataset)),
+            true);
+    }
+
+    /**
+     * Multi-suite mode ({@code -PdashboardSuite=all}): run every registered suite inside
+     * this JVM, in sorted order, publishing each suite's bundle the moment it finishes so
+     * a crash mid-sweep still leaves the earlier reports on disk. The one
+     * {@link ScenarioRunner} is shared across suites, so its memoized {@code RoutingStatic}
+     * and prepared account sessions are built once instead of once per suite; results and
+     * captured lengths stay per-suite.
+     */
+    private void runAllSuites() throws IOException, InterruptedException {
+        List<String> suites = new ArrayList<>(new TreeSet<>(Suites.names()));
+        // Build the A* static routing data up front rather than inside the first timed
+        // run of the first suite (a no-op for the legacy backend).
+        runner.prepare();
+        int i = 0;
+        for (String suite : suites) {
+            i++;
+            // Deliberately not an [i/N] heartbeat line — the verify progress hook passes
+            // non-heartbeat lines through, and this boundary marker keeps the sweep's
+            // per-suite tqdm resets legible.
+            System.out.printf("--- suite %d/%d: %s%n", i, suites.size(), suite);
+            // Bundle name and title replicate the dashboards.gradle bundleFor/titleFor
+            // closures per suite; the global dashboard.bundleName/dashboard.title props
+            // would carry the meaningless 'all' derivation in this mode.
+            runDashboard(suite, suite, bundleNameFor(suite), titleFor(suite), datasetLabel(suite),
+                false);
+        }
+    }
+
+    /**
+     * Runs one dataset (a suite, or a route file when {@code suite} is null) and publishes
+     * its bundle. {@code standalone} is single-dataset mode: the global
+     * {@code dashboard.seasonal}/{@code dashboard.f2p} props tag the bundle and
+     * {@code dashboard.sourceResourcesDir} captures expected lengths. In multi-suite mode
+     * both stay off — a global flag would tag every suite (the per-suite bundle-name
+     * prefix supplies the flags instead) and the capture task never runs with
+     * {@code dashboard.suite=all}.
+     */
+    private void runDashboard(String dataset, String suite, String bundleName,
+            String reportTitle, String reportSubtitle, boolean standalone)
+            throws IOException, InterruptedException {
         String profileProp = System.getProperty("dashboard.profile");
-        String bundleName = System.getProperty(BUNDLE_NAME_PROPERTY, "routes");
-        String reportTitle = System.getProperty("dashboard.title", "Dashboard");
-        String reportSubtitle = System.getProperty("dashboard.subtitle", datasetLabel(dataset));
         Path siteRoot = bundlePublisher.getOutputRoot();
 
-        List<Scenario> allScenarios = suite != null ? Suites.load(suite) : Suites.loadFile(Paths.get(file));
+        List<Scenario> allScenarios = suite != null ? Suites.load(suite) : Suites.loadFile(Paths.get(dataset));
         String tier = System.getProperty(TIER_PROPERTY, "");
         if (!tier.isEmpty()) {
             allScenarios = Suites.withTier(allScenarios, tier);
@@ -230,16 +285,18 @@ public class DashboardTest {
         // "seasonal" as seasonal; this lets `-PdashboardBundle=seasonal-…`
         // and the default `seasonal-…` slugs both opt in without an
         // additional system property.
-        report.seasonal = Boolean.parseBoolean(System.getProperty("dashboard.seasonal", "false"))
+        report.seasonal = (standalone
+                && Boolean.parseBoolean(System.getProperty("dashboard.seasonal", "false")))
             || (bundleName != null && bundleName.toLowerCase(java.util.Locale.ROOT).startsWith("seasonal"));
         // Same convention for F2P bundles: `f2p-…` slug or -PdashboardF2p=true.
-        report.f2p = Boolean.parseBoolean(System.getProperty("dashboard.f2p", "false"))
+        report.f2p = (standalone
+                && Boolean.parseBoolean(System.getProperty("dashboard.f2p", "false")))
             || (bundleName != null && bundleName.toLowerCase(java.util.Locale.ROOT).startsWith("f2p"));
 
         bundlePublisher.publishBundle(bundleName, report);
 
         String sourceResourcesDir = System.getProperty("dashboard.sourceResourcesDir");
-        if (sourceResourcesDir != null && suite != null) {
+        if (sourceResourcesDir != null && suite != null && standalone) {
             Path lengthsFile = ExpectedLengths.file(Paths.get(sourceResourcesDir), suite);
             // The whole suite, not just the scenarios a tier or filter selected: the rest keep
             // their lengths.
@@ -387,6 +444,75 @@ public class DashboardTest {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * The bundle name a single-suite Gradle run derives for {@code suite} — a port of
+     * dashboards.gradle's {@code bundleFor} closure: the stem, lowercased with underscores
+     * turned to dashes, then the backend slug, then {@code -profiled} when
+     * {@code -PdashboardProfile=true} was passed explicitly.
+     */
+    private static String bundleNameFor(String suite) {
+        String slug = sourceStem(suite).replace('_', '-').toLowerCase(Locale.ROOT);
+        return slug + backendSlug() + (explicitlyProfiled() ? "-profiled" : "");
+    }
+
+    /**
+     * The report title a single-suite Gradle run derives for {@code suite} — a port of
+     * dashboards.gradle's {@code titleFor} closure: the stem tokens capitalized, then the
+     * backend word, then {@code Profiled} when profiled was forced on.
+     */
+    private static String titleFor(String suite) {
+        StringBuilder title = new StringBuilder();
+        for (String token : sourceStem(suite).split("[_-]")) {
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (title.length() > 0) {
+                title.append(' ');
+            }
+            title.append(Character.toUpperCase(token.charAt(0))).append(token.substring(1));
+        }
+        if (!backendSlug().isEmpty()) {
+            String backend = System.getProperty("dashboard.backend", "legacy").toLowerCase(Locale.ROOT);
+            title.append(' ').append(Character.toUpperCase(backend.charAt(0))).append(backend.substring(1));
+        }
+        if (explicitlyProfiled()) {
+            title.append(" Profiled");
+        }
+        return title.toString();
+    }
+
+    /**
+     * dashboards.gradle's {@code sourceStem}: the last path segment without its extension,
+     * plus a {@code _<tier>} suffix when a tier is selected.
+     */
+    private static String sourceStem(String source) {
+        String filename = source;
+        int slash = filename.lastIndexOf('/');
+        if (slash >= 0) {
+            filename = filename.substring(slash + 1);
+        }
+        String stem = filename.contains(".")
+            ? filename.substring(0, filename.lastIndexOf('.'))
+            : filename;
+        String tier = System.getProperty(TIER_PROPERTY, "");
+        return tier.isEmpty() ? stem : stem + "_" + tier;
+    }
+
+    /** dashboards.gradle's {@code backendSlug}: empty for the legacy backend, else {@code -<backend>}. */
+    private static String backendSlug() {
+        String backend = System.getProperty("dashboard.backend", "legacy");
+        return "legacy".equalsIgnoreCase(backend) ? "" : "-" + backend.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * dashboards.gradle's {@code profiled} flag — true only when
+     * {@code -PdashboardProfile=true} was passed explicitly, so the per-suite auto
+     * profiling decision never leaks into a bundle slug.
+     */
+    private static boolean explicitlyProfiled() {
+        return "true".equals(System.getProperty("dashboard.profile"));
+    }
 
     private static String datasetLabel(String dataset) {
         if (!dataset.contains("/") && !dataset.contains("\\")) {

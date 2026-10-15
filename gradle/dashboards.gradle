@@ -2,6 +2,10 @@
 
 def dashboardOutputRoot = layout.buildDirectory.dir('reports/pathfinder-dashboard')
 // A committed suite (shortestpath.scenarios.Suites), or a route JSON file to run instead.
+// `all` is the multi-suite sentinel: DashboardTest loops Suites.names() inside one JVM
+// and publishes each suite's bundle incrementally. bundleFor('all')/titleFor('all') then
+// feed the global dashboard.bundleName/dashboard.title props — harmless, since
+// DashboardTest ignores them in all-mode and re-derives both per suite.
 def dashboardSuite = providers.gradleProperty('dashboardSuite')
         .orElse('routes')
 def dashboardDataset = providers.gradleProperty('dashboardDataset')
