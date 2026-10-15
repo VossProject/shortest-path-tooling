@@ -22,32 +22,14 @@ the rest.
 
 **Upstream-blocked (open upstream PRs/issues gating the item):**
 
-- Stack merge authorization — gated on the published merge condition
-  (route delta unchanged vs upstream master, same-or-faster performance)
-  and the user's explicit go-ahead; evidence posts to epic
-  Skretzo/shortest-path#714.
 - Skretzo/shortest-path#701 — teleport-item restriction UI and the
   balloon-log-basket unlock ship in that draft PR; also pending a
   full-panel dev-client check before it can leave draft.
-- Skretzo/shortest-path#655 — Xeric's Honour config toggle (issues
-  #214/#380); a real unlock var from upstream would replace the toggle.
-- Skretzo/shortest-path#656 — Dragontooth passage toggle (issue #427).
 - Skretzo/shortest-path#633 — planted spirit-tree fix; on merge the
   #542 regression row flips and the issue closes.
-- LlemonDuck/easy-teleports#31 — friendly destination names (#480) prefer
-  the integration path; a built-in alias map is the fallback.
-- Open-PR merge watch — #633, #635, #653, #656, #658, #659, #701 and the
-  refactor stack; each merge triggers restack/re-pin choreography.
 
 **Upstream-followup (each needs its own upstream PR after merges):**
 
-- Provisional seam repairs deferred out of the in-flight stack diff —
-  four documented edges plus the `DebugOverlayPanel` constructor,
-  adjudicated a named lint exception: RuneLite's `OverlayPanel`
-  requires the plugin instance, so the parameter keeps the
-  `ShortestPathPlugin` type only to satisfy `super(plugin)`; widening
-  it to `net.runelite.client.plugins.Plugin` is deferred post-merge
-  for the same reason.
 - `UNLOCK_*` parser hardening — typo'd unlock tokens currently abort
   plugin startup; per-record validation or a TSV-lint name check.
 - Unlock-branch null rows in `getStaves()`/`getOffhands()`,
@@ -59,13 +41,6 @@ the rest.
 - Optional `clear`+`expected` compare-and-set complement for the
   getTarget plugin-message API (#531 follow-up, if upstream wants the
   race closed).
-- Skretzo/shortest-path#707, #708, #709, #710, #711 — five stack PR
-  bodies lack the architecture-boundary reference; they get stamped at
-  the merge-time body pass.
-- Skretzo/shortest-path#707 — the consumable-rejection semantics delta
-  carries no in-PR adversarial test (mode-matrix coverage ships in
-  #708's test class on the same tree); a dedicated test lands
-  post-merge only if upstream wants it.
 
 **Post-milestone features:**
 
@@ -99,6 +74,25 @@ close-path hardening in the issue-sync tooling, maintenance-script
 modularization, and standing routing policies (new unlock families,
 speculative dumpers, triage routing).
 
+## Resolved during the seam fold-back
+
+Follow-ups folded into the milestone before close-out rather than left
+for a post-merge cleanup pass:
+
+- Provisional seam repairs — the bank-pickup projection moved onto the
+  pathfinder config (keyed on an item-state revision counter), the
+  spirit-tree patch table moved to a requirement-package leaf with the
+  modal-widget read on the player-state source, the transport loader
+  emits a local restriction-family row instead of the panel model, the
+  debug overlay uses the no-arg `OverlayPanel` constructor, every
+  overlay render reads the active search once per pass, and the
+  spirit-tree service publishes copy-on-write map snapshots — the
+  retired edges dropped out of the dependency-lint census.
+- Stack PR bodies #707–#711 — each now carries the
+  architecture-boundary reference for the boundary it implements.
+- Skretzo/shortest-path#707 — the consumable-rejection delta gained a
+  dedicated adversarial test on the PR branch.
+
 ## Resolved during the test-suite rework
 
 The milestone's test-suite-rework pass discharged these register items
@@ -130,7 +124,7 @@ The milestone's test-suite-rework pass discharged these register items
 
 ## Counts
 
-89 open register rows and 34 superseded/resolved marks, swept from 36
+68 open register rows and 43 superseded/resolved marks, swept from 36
 deferred-item sources (per-phase deferred lists, deferred-idea blocks in
 phase notes, the issue residual ledger, state notes, and the integration
 findings ledger). All sources are marked rolled up; this register is the
