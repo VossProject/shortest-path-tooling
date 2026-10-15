@@ -72,11 +72,13 @@ if (pluginHasSailing) {
 }
 
 // ConfigParityTest compares PluginSettings' defaults with the plugin's own test config, which stays
-// in shortest-path/src/test/java (no changes to the plugin build).
+// in shortest-path/src/test/java (no changes to the plugin build). TestWorldData is the shared
+// per-JVM fixture holder the harness tests draw the same world data from.
 compileTestJava.source fileTree(
     dir: new File(shortestPathProjectDir, 'src/test/java'),
     includes: [
         'shortestpath/TestShortestPathConfig.java',
+        'shortestpath/pathfinder/TestWorldData.java',
     ]
 )
 
