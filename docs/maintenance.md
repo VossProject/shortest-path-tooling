@@ -26,7 +26,7 @@ never commit to the wrong place.
 | `seasonal` | `scripts/verify_seasonal_regions.py` |
 | `refresh` | the ordered chain: collision-map -> cache -> regions -> bank -> seasonal |
 | `probes` | the 11 season-discovery dump tasks (8 default + 3 name-driven) |
-| `verify` | `compileTestJava` + submodule `test` + `dashboard` sweep + edge-diff |
+| `verify` | `compileTestJava` + submodule `test` + dep-lint + `dashboard` sweep + edge-diff |
 | `validate` | `scripts/validate_data.py` deterministic checks + `freshness` currency check + advisory destinations/drift/season |
 
 Run any subcommand with `--help` for its flags.
@@ -146,8 +146,16 @@ tier never hides the rest), printing `PASS`/`FAIL` per tier and a final
 nonzero when any tier fails:
 
 1. `compileTestJava` — the same compile gate CI runs.
-2. `./gradlew -p shortest-path test` — the submodule's test suite
-   (`TransportDataLintTest` et al.).
+2. `lint` — `./gradlew -p shortest-path test`, the submodule's test
+   suite (`TransportDataLintTest` et al., including the
+   package-boundary lints `RequirementPackageBoundaryTest` and
+   `AStarPackageDependencyTest`), then `./gradlew :test --tests
+   'shortestpath.PluginDependencyRuleTest'`, the harness-side
+   dependency rule. Both legs must exit 0. The qualified `:test` path
+   keeps the filter off `:accounts:test`, and Gradle fails a
+   `--tests` selection that matches no class, so the named filter can
+   never pass vacuously. CI carries the same gate as a
+   `Dependency boundary lint` step in the build job.
 3. `dashboard` — one `./gradlew dashboard -PdashboardSuite=all`
    invocation runs every committed scenario suite in a single JVM (the
    suite list comes from `./gradlew -q scenarioIndex`, the Java
