@@ -94,10 +94,11 @@ public class ConfigParityTest {
         NO_TWIN_ALLOWLIST.put("postTransports", "plugin-message broadcast toggle; never read during pathfinding");
         // Derived sets — their interface defaults delegate to the twinned
         // booleans (useTeleportationPortalsPoh / usePohMountedItems), so the
-        // full-on/full-off surface is already stub-able; partial sets are
-        // inexpressible in the config_overrides grammar.
-        NO_TWIN_ALLOWLIST.put("pohNexusPortals", "interface default derives the set from twinned useTeleportationPortalsPoh; partial sets inexpressible in config_overrides");
-        NO_TWIN_ALLOWLIST.put("pohMountedItems", "interface default derives the set from twinned usePohMountedItems; partial sets inexpressible in config_overrides");
+        // full-on/full-off surface scenarios actually need is already
+        // stub-able through the twinned boolean; a partial set override has
+        // no harness consumer worth a dedicated twin setter.
+        NO_TWIN_ALLOWLIST.put("pohNexusPortals", "interface default derives the set from twinned useTeleportationPortalsPoh; a partial set override has no harness consumer");
+        NO_TWIN_ALLOWLIST.put("pohMountedItems", "interface default derives the set from twinned usePohMountedItems; a partial set override has no harness consumer");
     }
 
     /**
