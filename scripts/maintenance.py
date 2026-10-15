@@ -1022,8 +1022,8 @@ def _scenario_progress_hook(desc: str):
 
 
 def do_verify(args: argparse.Namespace) -> int:
-    """Four-tier compatibility gate: compile -> submodule test ->
-    dashboard sweep -> collision edge-diff.
+    """Four-tier compatibility gate: compile -> submodule test +
+    harness dep-lint -> dashboard sweep -> collision edge-diff.
 
     Every tier runs even when an earlier one fails — the maintainer
     wants the whole picture, not just the first red.  The compile and
@@ -1054,12 +1054,31 @@ def do_verify(args: argparse.Namespace) -> int:
 
     if not args.skip_lint:
         t0 = timed_tier("lint")
+        failures = []
         # The whole submodule test task — strictly more coverage than
-        # *LintTest alone.
+        # *LintTest alone, and it carries the submodule boundary lints
+        # (RequirementPackageBoundaryTest, AStarPackageDependencyTest).
         proc = run(["./gradlew", "-p", "shortest-path", "test"],
                    cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
-        tiers["lint"] = ([] if proc.returncode == 0 else [
-            f"submodule test exited {proc.returncode}"])
+        if proc.returncode != 0:
+            failures.append(
+                f"submodule test exited {proc.returncode}")
+        # The harness-side dependency rule lives in this repo's test
+        # tree, outside the submodule blob — it gets its own named
+        # --tests filter.  The qualified ':test' path matters: a bare
+        # 'test' would also run :accounts:test, which fails the same
+        # no-match check on a filter that only exists in the root
+        # project.  Gradle exits nonzero with "No tests found for
+        # given includes" when a filter matches nothing, so the gate
+        # can never pass on an empty selection.
+        proc = run(["./gradlew", ":test", "--tests",
+                    "shortestpath.PluginDependencyRuleTest"],
+                   cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
+        if proc.returncode != 0:
+            failures.append(
+                "dep-lint shortestpath.PluginDependencyRuleTest "
+                f"exited {proc.returncode}")
+        tiers["lint"] = failures
         tier_done("lint", t0)
 
     if not args.skip_dashboard:
@@ -1594,9 +1613,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     vf = sub.add_parser(
         "verify",
-        help="Run the compatibility gate: compile -> submodule test "
-             "-> one consolidated dashboard sweep over committed "
-             "scenario suites -> collision-map edge-diff")
+        help="Run the compatibility gate: compile -> submodule test + "
+             "harness dependency-rule lint -> one consolidated "
+             "dashboard sweep over committed scenario suites -> "
+             "collision-map edge-diff")
     vf.add_argument(
         "--fast", action="store_true",
         help="Narrow the dashboard tier to the canonical suite's "
@@ -1609,7 +1629,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Omit the compileTestJava tier")
     vf.add_argument(
         "--skip-lint", action="store_true",
-        help="Omit the submodule test tier")
+        help="Omit the submodule test + dependency-rule lint tier")
     vf.add_argument(
         "--skip-dashboard", action="store_true",
         help="Omit the dashboard sweep tier")

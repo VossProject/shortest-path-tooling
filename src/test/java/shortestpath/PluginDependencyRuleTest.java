@@ -48,11 +48,12 @@ import static org.junit.Assert.*;
  * (new coupling); an allowlist key with no matching site fails it too
  * (stale entry — remove it in the same change that removed the reference).
  *
- * <p>Run with {@code ./gradlew test --tests '*DependencyRule*'}. Enforcement
- * is that command — the milestone's phase gate plus a checklist item on
- * every extraction pull request. The wrapper {@code test} task runs in
- * neither CI nor the maintenance-verify chain; that gap is deliberate, and
- * wiring the suite into CI is a separate scope decision.
+ * <p>Run with {@code ./gradlew test --tests
+ * 'shortestpath.PluginDependencyRuleTest'}. Enforcement is a blocking
+ * gate: the maintenance-verify lint tier runs that exact filter after
+ * the submodule suite, and CI's build job carries it as a named
+ * dependency-boundary step. Gradle fails a {@code --tests} selection
+ * that matches no class, so the gate cannot pass vacuously.
  *
  * <p>{@link #observedSites(Path)} is factored out so
  * {@link #flagsUnlistedCoupling()} can prove both failure branches against
@@ -187,10 +188,6 @@ public class PluginDependencyRuleTest
 			"PathScheduler.attach takes the ItemStateService for refresh routing");
 		LEAF_EDGES.put("scheduler -> pathfinder",
 			"PathScheduler drives Pathfinder/ActiveSearch/PathfinderConfig/PathStep");
-		LEAF_EDGES.put("scheduler -> requirement",
-			"PathScheduler passes the schedule-time TransportEligibility snapshot to the consumption validator in onPathComplete");
-		LEAF_EDGES.put("scheduler -> transport",
-			"PathScheduler reads the unpayable Transport the validator returns to exclude it and re-plan");
 		// The coordinator extraction adds the declared-fact channels:
 		// producers inject RefreshCoordinator (inbound) and the coordinator
 		// reads the fact types it translates (outbound).

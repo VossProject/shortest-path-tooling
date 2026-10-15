@@ -1639,8 +1639,8 @@ def test_scan_report_reached_expected_unreachable_is_a_failure(tmp_path):
 
 
 def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
-                    lint_rc=0, runs_for=None, missing_reports=(),
-                    ls_tree_rc=0,
+                    lint_rc=0, dep_lint_rc=0, runs_for=None,
+                    missing_reports=(), ls_tree_rc=0,
                     gitlink="160000 commit deadbeefcafe\tshortest-path",
                     show_bytes=b"OLDZIP", show_rc=0,
                     diff_stdout="EDGE TOTALS\n", diff_rc=0):
@@ -1685,6 +1685,8 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
             return cp(cmd, rc=compile_rc)
         if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
             return cp(cmd, rc=lint_rc)
+        if cmd[:3] == ["./gradlew", ":test", "--tests"]:
+            return cp(cmd, rc=dep_lint_rc)
         if cmd[0] == sys.executable:
             return cp(cmd, diff_stdout, rc=diff_rc)
         raise AssertionError(f"unexpected argv: {cmd}")
@@ -1714,6 +1716,8 @@ def verify_kind(cmd):
     if cmd[:2] == ["./gradlew", "compileTestJava"]:
         return "compile"
     if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
+        return "lint"
+    if cmd[:3] == ["./gradlew", ":test", "--tests"]:
         return "lint"
     if cmd[0] == sys.executable:
         return "compare"
@@ -2006,12 +2010,48 @@ def test_verify_skip_flags(tmp_path, monkeypatch):
     assert mm.main(["verify", "--skip-lint"]) == 0
     assert not any(c[:4] == ["./gradlew", "-p", "shortest-path",
                              "test"] for c, _ in calls)
+    # --skip-lint also omits the harness dep-lint leg — same tier.
+    assert not any(c[:3] == ["./gradlew", ":test", "--tests"]
+                   for c, _ in calls)
 
     repo, _, calls = prepare_verify(tmp_path / "d", monkeypatch)
     assert mm.main(["verify", "--skip-diff"]) == 0
     assert not any(c[:3] == ["git", "ls-tree", "HEAD"]
                    for c, _ in calls)
     assert not any(c[0] == sys.executable for c, _ in calls)
+
+
+def test_verify_runs_dep_lint(tmp_path, monkeypatch):
+    # The lint tier issues the named dependency-rule filter after the
+    # submodule blob — PluginDependencyRuleTest lives in this repo's
+    # test tree, outside the -p shortest-path suite.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    rc = mm.main(["verify"])
+    assert rc == 0
+    kinds = [verify_kind(c) for c, _ in calls]
+    # The qualified ':test' path matters — a bare 'test' also selects
+    # :accounts:test, which would fail the no-match check on a filter
+    # that only exists in the root project.
+    assert ["./gradlew", ":test", "--tests",
+            "shortestpath.PluginDependencyRuleTest"] in [
+        c for c, _ in calls]
+    # Both legs land in the lint tier, submodule blob first.
+    lints = [c for c, _ in calls if verify_kind(c) == "lint"]
+    assert lints[0][:4] == ["./gradlew", "-p", "shortest-path", "test"]
+    assert lints[1][:3] == ["./gradlew", ":test", "--tests"]
+
+
+def test_verify_dep_lint_failure_fails_lint_tier(tmp_path, monkeypatch,
+                                                  capsys):
+    # A red dep-lint marks FAIL lint and names the filtered command —
+    # the gate is blocking, not advisory.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch,
+                                    dep_lint_rc=1)
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL lint" in out
+    assert "PluginDependencyRuleTest" in out
 
 
 def test_verify_returns_nonzero_on_any_tier_failure(
