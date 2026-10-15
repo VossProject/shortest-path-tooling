@@ -19,7 +19,9 @@ the move order is [extraction-sequence.md](extraction-sequence.md).
 
 ## Stack state
 
-Twenty pull requests carry the refactor upstream, stacked base-to-tip.
+Twenty-one pull requests carry the stack upstream, stacked base-to-tip —
+the twenty-first is the consolidated test-suite rework appended after the
+refactor's tip.
 **No stack PR has merged upstream — every one remains open awaiting
 maintainer review, and all but the stack root are drafts by design.**
 Merge timing is maintainer-paced; nothing here asserts readiness on the
@@ -46,12 +48,13 @@ reviewer's behalf.
 | 17 | #792 | `SkillLevels` — typed skill-level value type | #778 |
 | 18 | #793 | `ResourceLoader` — TSV data loading behind a typed entry point | #792 |
 | 19 | #794 | Widget-scraping machinery (`GameWidgets`) | #793 |
-| 20 | #711 | Config panel rework + teleport restrictions (stack tip) | #794 |
+| 20 | #711 | Config panel rework + teleport restrictions | #794 |
+| 21 | #807 | Test-suite rework — consolidated test-only PR (shared lazy fixtures, stale-API repair, capped test forks) (stack tip) | #711 |
 
 Chain shape: #707 is the root; #709/#710 are a short fork off #708 (the
 issue-#636 work); the main line continues #708 → #716 → … → #711.
 The integrated branch pair — tooling `1.22.0` pinning submodule `1.22.0`
-at `3c29fae6` — accumulates all twenty in chain order regardless of
+at `6278a633` — accumulates all twenty-one in chain order regardless of
 merge timing.
 
 ## Merge-readiness evidence
@@ -111,9 +114,10 @@ committed summary is [DEFERRED.md](DEFERRED.md).
   constructor seam (RuneLite's `OverlayPanel` requires the plugin
   instance) plus four provisional seam edges — each repair is deferred
   because landing it mid-stack would re-diff every descendant PR.
-- **Follow-up test-suite rework.** A dedicated rework of the test suite
-  for the middleware architecture is planned next — this milestone does
-  not end here.
+- **Follow-up test-suite rework.** Landed as draft PR #807 (branch
+  `test/suite-rework`, consolidated test-only diff), stacked on #711 at
+  the stack tip and merged into the `1.22.0` integration branch — the
+  milestone's test-side debt is now upstream-visible pending review.
 
 ## Merge choreography — per-merge restack and re-pin
 
@@ -146,7 +150,8 @@ integration branch's gitlink advances on the next pairing.**
 | #792 | #793 onto merged `master` | `chore/stage-resource-loader` → published #793 head |
 | #793 | #794 onto merged `master` | `chore/stage-widget-scraping` → published #794 head |
 | #794 | #711 onto merged `master` | `chore/stage-701` → published #711 head |
-| #711 | stack complete — the integrated branch carries the merged chain | — |
+| #711 | #807 onto merged `master` | — (test-only; rides the integration re-pin) |
+| #807 | stack complete — the integrated branch carries the merged chain | — |
 
 Notes on the table:
 
