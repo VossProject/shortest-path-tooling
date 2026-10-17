@@ -1001,6 +1001,7 @@ def working_dataset_names(csv_path: Path) -> set:
     ERRORs, identical to the pre-tier behavior.
     """
     names = set()
+    header_consumed = False
     try:
         for line in csv_path.read_text(encoding="utf-8",
                                        errors="replace").splitlines():
@@ -1008,8 +1009,15 @@ def working_dataset_names(csv_path: Path) -> set:
             if not line or line.startswith("#"):
                 continue
             name = line.split(",", 1)[0].strip()
-            if not name or name == "name":
+            if not name:
                 continue
+            # Header detection: only the first non-comment line may be
+            # the ``name,...`` header. A data row literally named
+            # ``name`` later in the file is a real scenario, not a header.
+            if name == "name" and not header_consumed:
+                header_consumed = True
+                continue
+            header_consumed = True
             names.add(name)
     except OSError:
         return set()
