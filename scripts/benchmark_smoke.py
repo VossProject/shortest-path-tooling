@@ -37,8 +37,12 @@ REQUIRED = {
     "run_id": str, "suite": str, "scenario": str, "category": str, "profile": str, "repetition": int,
     "expected_reachable": bool, "outcome": str, "check": str, "reachable": (bool, type(None)),
     "path_cost": (int, type(None)), "path_length": (int, type(None)), "total_ns": (int, type(None)),
-    "termination_reason": str, "failure": str,
+    "allocated_bytes": (int, type(None)), "termination_reason": str, "failure": str,
 }
+# What it reads from execution_metadata's memory and world (A* only: the static routing data).
+MEMORY = ("heap_after_prepare_bytes", "heap_after_run_bytes", "peak_heap_bytes", "run_gc_count", "run_gc_ms")
+WORLD = ("transports", "transport_origins")
+ASTAR_WORLD = ("search_tiles", "sites", "routing_components", "crossings")
 
 
 class SmokeError(Exception):
@@ -62,6 +66,12 @@ def check_envelope(backend, envelope):
     for field in ("java_version", "vm_name", "vm_version"):
         if not isinstance(execution.get("runtime", {}).get(field), str):
             raise SmokeError(f"execution_metadata.runtime.{field} must be a string")
+    for field in MEMORY:
+        if not isinstance(execution.get("memory", {}).get(field), int):
+            raise SmokeError(f"execution_metadata.memory.{field} must be an integer")
+    for field in WORLD + (ASTAR_WORLD if backend == "astar" else ()):
+        if not isinstance(execution.get("world", {}).get(field), int):
+            raise SmokeError(f"execution_metadata.world.{field} must be an integer")
     rows = envelope["observations"]
     seen = sorted((row.get("suite"), row.get("scenario")) for row in rows)
     if seen != sorted((suite, name) for suite, name, _ in CASES):

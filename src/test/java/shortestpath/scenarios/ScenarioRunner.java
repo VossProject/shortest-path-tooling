@@ -102,6 +102,11 @@ public final class ScenarioRunner {
         return routingStaticBuildNanos;
     }
 
+    /** The A* backend's static routing data once {@link #prepare()} has built it; {@code null} for legacy. */
+    public RoutingStatic getRoutingStatic() {
+        return routingStatic;
+    }
+
     /** Compiles {@code scenario} and runs it, on the calling thread. */
     public Observation run(Scenario scenario) {
         return run(scenario, scenario.compile(), Profiling.OFF);
