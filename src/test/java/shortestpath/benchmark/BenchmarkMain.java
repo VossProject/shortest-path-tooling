@@ -21,11 +21,14 @@ import java.util.Set;
 import shortestpath.pathfinder.AStarPathfinder;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.astar.AStarForwardSearch;
+import shortestpath.pathfinder.astar.RoutingStatic;
 import shortestpath.profiles.CompiledAccount;
 import shortestpath.scenarios.Observation;
 import shortestpath.scenarios.Scenario;
 import shortestpath.scenarios.ScenarioRunner;
 import shortestpath.scenarios.Suites;
+import shortestpath.transport.Transport;
+import shortestpath.transport.TransportLoader;
 
 /**
  * The benchmark entry point ({@code ./gradlew benchmark --args="--manifest M --output OUT"}), called by
@@ -54,8 +57,14 @@ public final class BenchmarkMain {
         }
 
         ScenarioRunner runner = new ScenarioRunner(plan.backend, plan.aStarSession);
+        JsonObject memory = new JsonObject();
+        long allocatedBeforePrepare = JvmMetrics.allocatedBytes();
         runner.prepare();
         long routingStaticBuildNanos = runner.getRoutingStaticBuildNanos();
+        if (plan.backend == ScenarioRunner.Backend.ASTAR && allocatedBeforePrepare >= 0) {
+            memory.addProperty("static_build_allocated_bytes", JvmMetrics.allocatedBytes() - allocatedBeforePrepare);
+        }
+        memory.addProperty("heap_after_prepare_bytes", JvmMetrics.retainedHeapBytes());
 
         if (!plan.warmup.isEmpty()) {
             progressPhase("warming up");
@@ -70,16 +79,31 @@ public final class BenchmarkMain {
 
         List<JsonObject> observations = new ArrayList<>();
         progressPhase("running");
+        long gcCount = JvmMetrics.gcCount();
+        long gcMillis = JvmMetrics.gcMillis();
         for (Case current : plan.cases) {
             progressStart(current);
             JsonObject observation = execute(current, plan, runner, runId);
             observations.add(observation);
             progressComplete(observation);
         }
+        memory.addProperty("run_gc_count", JvmMetrics.gcCount() - gcCount);
+        memory.addProperty("run_gc_ms", JvmMetrics.gcMillis() - gcMillis);
+        memory.addProperty("peak_heap_bytes", JvmMetrics.peakHeapBytes());
+        long peakResident = JvmMetrics.peakResidentBytes();
+        if (peakResident >= 0) {
+            memory.addProperty("peak_resident_bytes", peakResident);
+        }
+        memory.addProperty("heap_after_run_bytes", JvmMetrics.retainedHeapBytes());
+        memory.addProperty("max_heap_bytes", Runtime.getRuntime().maxMemory());
 
         JsonObject envelope = new JsonObject();
         envelope.addProperty("format_version", FORMAT_VERSION);
-        envelope.add("execution_metadata", executionMetadata(plan, routingStaticBuildNanos));
+        JsonObject metadata = executionMetadata(plan, routingStaticBuildNanos);
+        metadata.add("memory", memory);
+        // Measured after the memory figures, so loading the transports again doesn't count in them.
+        metadata.add("world", world(runner.getRoutingStatic()));
+        envelope.add("execution_metadata", metadata);
         JsonArray rows = new JsonArray();
         observations.forEach(rows::add);
         envelope.add("observations", rows);
@@ -201,6 +225,40 @@ public final class BenchmarkMain {
         return new Plan(cases, warmup, maxRepetition + 1, diagnostic, backend, aStarSession);
     }
 
+    /**
+     * The routing world this run searched: the plugin's transports, and for A* the size of its static
+     * routing data (walkable search tiles, sites, routing components, crossings, sparse graph).
+     */
+    static JsonObject world(RoutingStatic routing) {
+        JsonObject world = new JsonObject();
+        Map<Integer, Set<Transport>> transports = TransportLoader.loadAllFromResources();
+        Map<String, Integer> byType = new java.util.TreeMap<>();
+        int total = 0;
+        for (Set<Transport> atOrigin : transports.values()) {
+            for (Transport transport : atOrigin) {
+                byType.merge(String.valueOf(transport.getType()), 1, Integer::sum);
+                total++;
+            }
+        }
+        world.addProperty("transports", total);
+        world.addProperty("transport_origins", transports.size());
+        JsonObject types = new JsonObject();
+        byType.forEach(types::addProperty);
+        world.add("transports_by_type", types);
+        if (routing != null) {
+            world.addProperty("search_tiles", routing.searchTileCount());
+            world.addProperty("sites", routing.siteCount());
+            world.addProperty("routing_components", routing.routingComponentCount());
+            world.addProperty("reachable_banks", routing.reachableBankCount());
+            world.addProperty("crossings", routing.crossingCount());
+            world.addProperty("sparse_vertices", routing.sparseVertexCount());
+            world.addProperty("sparse_original_vertices", routing.sparseOriginalCount());
+            world.addProperty("sparse_steiner_vertices", routing.sparseSteinerCount());
+            world.addProperty("sparse_edges", routing.sparseAdjacencyCount());
+        }
+        return world;
+    }
+
     /** Scenarios by suite and exact name, each suite loaded once. */
     private static final class ScenarioIndex {
         private final Map<String, Map<String, Scenario>> suites = new HashMap<>();
@@ -269,7 +327,9 @@ public final class BenchmarkMain {
             return failure(row, "account: " + describe(exception));
         }
         try {
+            long allocatedBefore = JvmMetrics.allocatedBytes();
             Observation observation = runner.run(current.scenario, account, ScenarioRunner.Profiling.OFF);
+            long allocated = allocatedBefore < 0 ? -1 : JvmMetrics.allocatedBytes() - allocatedBefore;
             PathfinderResult result = observation.getResult();
             Observation.Assertion check = observation.check();
             row.addProperty("outcome", Boolean.FALSE.equals(check.passed) ? "unexpected" : "ok");
@@ -278,6 +338,11 @@ public final class BenchmarkMain {
             addNullable(row, "path_cost", observation.getCost());
             row.addProperty("path_length", observation.getPathLength());
             row.addProperty("total_ns", observation.getTotalNanos());
+            if (allocated >= 0) {
+                row.addProperty("allocated_bytes", allocated);
+            } else {
+                row.add("allocated_bytes", JsonNull.INSTANCE);
+            }
             row.addProperty("termination_reason", result.getTerminationReason() == null
                 ? "" : result.getTerminationReason().name());
             row.addProperty("failure", "");
@@ -339,6 +404,7 @@ public final class BenchmarkMain {
         row.add("path_cost", JsonNull.INSTANCE);
         row.add("path_length", JsonNull.INSTANCE);
         row.add("total_ns", JsonNull.INSTANCE);
+        row.add("allocated_bytes", JsonNull.INSTANCE);
         row.addProperty("termination_reason", "");
         row.addProperty("failure", reason);
         return row;

@@ -118,6 +118,31 @@ public class BenchmarkMainTest {
         Assert.assertEquals(direct.getPathLength(), observation.get("path_length").getAsInt());
     }
 
+    /** A run reports its memory, the routing world it searched, and each query's allocation. */
+    @Test
+    public void reportsMemoryWorldAndAllocation() throws Exception {
+        Path manifest = writeManifest("astar", List.of(caseJson("canonical", firstCanonical(), 0)));
+        Path output = Files.createTempFile("benchmark-main-result", ".json");
+        System.setProperty("benchmark.runId", "java-test-run");
+        try {
+            BenchmarkMain.run(manifest, output);
+        } finally {
+            System.clearProperty("benchmark.runId");
+        }
+        JsonObject result = JsonParser.parseString(Files.readString(output)).getAsJsonObject();
+        JsonObject metadata = result.getAsJsonObject("execution_metadata");
+        JsonObject memory = metadata.getAsJsonObject("memory");
+        Assert.assertTrue(memory.get("heap_after_prepare_bytes").getAsLong() > 0);
+        Assert.assertTrue(memory.get("static_build_allocated_bytes").getAsLong() > 0);
+        Assert.assertTrue(memory.get("peak_heap_bytes").getAsLong() >= memory.get("heap_after_prepare_bytes").getAsLong() / 2);
+        JsonObject world = metadata.getAsJsonObject("world");
+        Assert.assertTrue(world.get("transports").getAsInt() > 1000);
+        Assert.assertTrue(world.getAsJsonObject("transports_by_type").has("TRANSPORT"));
+        Assert.assertTrue(world.get("search_tiles").getAsInt() > world.get("routing_components").getAsInt());
+        JsonObject observation = result.getAsJsonArray("observations").get(0).getAsJsonObject();
+        Assert.assertTrue(observation.get("allocated_bytes").getAsLong() > 0);
+    }
+
     @Test
     public void aStarSessionDefaultsToColdAndIsValidated() throws Exception {
         Assert.assertEquals(ScenarioRunner.AStarSession.COLD, BenchmarkMain.loadPlan(aStarManifest(null, false)).aStarSession);
