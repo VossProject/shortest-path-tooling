@@ -16,7 +16,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import shortestpath.WorldPointUtil;
-import shortestpath.pathfinder.BankVisitState;
 import shortestpath.route.RouteCli;
 import shortestpath.scenarios.CanonicalCorpus;
 import shortestpath.scenarios.Observation;
@@ -106,7 +105,6 @@ public class BenchmarkMainTest {
 
     /** A Java scenario runs with its own profile and overrides, as the route CLI and dashboard run it. */
     @Test
- HEAD
     public void runsJavaScenariosAsTheOtherFrontendsDo() throws Exception {
         String name = "GE centre walk (routing control)";
         Observation direct = new ScenarioRunner(ScenarioRunner.Backend.LEGACY).run(Suites.find("routing-issues", name));
@@ -118,23 +116,6 @@ public class BenchmarkMainTest {
         Assert.assertEquals("routing-control", observation.get("category").getAsString());
         Assert.assertEquals(direct.getCost().intValue(), observation.get("path_cost").getAsInt());
         Assert.assertEquals(direct.getPathLength(), observation.get("path_length").getAsInt());
-
-    public void syntheticClockGovernsCooldowns() throws Exception {
-        long clock = 123456789L;
-        BenchmarkMain.Case current = new BenchmarkMain.Case(firstRoute(), "early", 0, true);
-        Assert.assertEquals(clock, BenchmarkMain.compileAccount(current, clock, account -> { })
-            .getConfig().evaluationTimeMinutes());
-        // A minigame teleport used 10 minutes before the clock is on its 20-minute cooldown; a day later it isn't.
-        Assert.assertFalse(hasFishingTrawlerTeleport(BenchmarkMain.compileAccount(current, clock,
-            account -> account.minigameTeleportUsedAt(clock - 10))));
-        Assert.assertTrue(hasFishingTrawlerTeleport(BenchmarkMain.compileAccount(current, clock + 24 * 60,
-            account -> account.minigameTeleportUsedAt(clock - 10))));
-    }
-
-    private static boolean hasFishingTrawlerTeleport(shortestpath.profiles.CompiledAccount account) {
-        return java.util.Arrays.stream(account.getConfig().getUsableTeleports(BankVisitState.CARRIED))
-            .anyMatch(transport -> "Fishing Trawler Minigame Teleport".equals(transport.getDisplayInfo()));
->>>>>>> 35368f8 (test: realign canonical benchmark harness with BankVisitSta
     }
 
     /** A run reports its memory, the routing world it searched, and each query's allocation. */

@@ -74,7 +74,6 @@ jobs:
         # If you change the adapter's arguments, manifest format or output, update
         # shortest-path-benchmarks to match (projects/shortest-path/run.sh, scripts/lib/benchlib.py,
         # schemas/) and scripts/benchmark_smoke.py with it.
- HEAD
       - name: Run a light benchmark through the benchmark task
         # Runs `benchmark` as collisionlab/osrs-benchmarks does (three scenarios, legacy and A*)
         # and checks the output as it reads it, so we know the task still works for it.
