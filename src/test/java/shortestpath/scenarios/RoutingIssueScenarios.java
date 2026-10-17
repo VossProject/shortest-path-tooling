@@ -1383,21 +1383,25 @@ final class RoutingIssueScenarios {
         suite.scenario("Barrows tunnels (#680) surface cannot enter chest room", "routing-issue-680")
             .from(3593, 3272, 0).to(3538, 9667, 0)
             .profile(UNIT_TEST)
+            .settings(s -> s.setUseTeleportationSpellsHome(false))
             .expectUnreachable();
 
         suite.scenario("Motherlode Mine (#681) main chamber cannot enter north tunnels", "routing-issue-681")
             .from(3060, 9766, 0).to(3745, 5646, 0)
             .profile(UNIT_TEST)
+            .settings(s -> s.setUseTeleportationSpellsHome(false))
             .expectUnreachable();
 
         suite.scenario("Vardorvis arena (#682) Stranglewood approach cannot enter arena", "routing-issue-682")
             .from(1133, 3395, 0).to(1124, 3408, 0)
             .profile(UNIT_TEST)
+            .settings(s -> s.setUseTeleportationSpellsHome(false))
             .expectUnreachable();
 
         suite.scenario("Waterbirth dungeon (#683) island cannot reach crevice pocket", "routing-issue-683")
             .from(2544, 3761, 0).to(1834, 4390, 3)
             .profile(UNIT_TEST)
+            .settings(s -> s.setUseTeleportationSpellsHome(false))
             .expectUnreachable();
 
         suite.scenario("Hueycoatl arena (#684) slope descends into pocket", "routing-issue-684")
@@ -1419,6 +1423,7 @@ final class RoutingIssueScenarios {
         suite.scenario("Shayzien enclosed room (#690) street cannot enter room", "routing-issue-690")
             .from(1500, 3613, 0).to(1503, 3612, 0)
             .profile(UNIT_TEST)
+            .settings(s -> s.setUseTeleportationSpellsHome(false))
             .expectUnreachable();
 
         suite.scenario("Moons of Peril (#692) Neypotzli approach reaches entrance pocket", "routing-issue-692")
