@@ -594,6 +594,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ck.add_argument("--scenario-index", type=Path,
                     help="A saved ./gradlew -q scenarioIndex output "
                          "(default: run it)")
+    ck.add_argument("--scenario-csv", type=Path, default=None,
+                    help="Working-dataset CSV consulted for the WARN "
+                         "tier on uncommitted scenario_rows names "
+                         "(default: <output-dir>/scenarios.csv)")
 
     vp = sub.add_parser(
         "verify",
@@ -986,6 +990,31 @@ def scenario_index(index_file: Optional[Path] = None) -> Dict[str, str]:
     return index
 
 
+def working_dataset_names(csv_path: Path) -> set:
+    """Scenario row names carried by the working-dataset CSV.
+
+    The working dataset is a flat comma-split file: a ``name,...``
+    header line, ``#`` comment lines, and one row per scenario whose
+    name is the text before the first bare comma (names are comma-free
+    by convention).  A missing or unreadable file degrades to an empty
+    set — the WARN tier simply never fires and unmatched names stay
+    ERRORs, identical to the pre-tier behavior.
+    """
+    names = set()
+    try:
+        for line in csv_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name = line.split(",", 1)[0].strip()
+            if not name or name == "name":
+                continue
+            names.add(name)
+    except OSError:
+        return set()
+    return names
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     errors: List[Tuple[str, str]] = []
     issue_numbers: set = set()
@@ -1007,20 +1036,38 @@ def cmd_check(args: argparse.Namespace) -> int:
         if isinstance(rows, list):
             scenario_refs.extend((path.name, row) for row in rows)
     index = scenario_index(args.scenario_index)
+    csv_path = args.scenario_csv or args.output_dir / "scenarios.csv"
+    csv_names = working_dataset_names(csv_path)
+    warnings: List[Tuple[str, str]] = []
     for fname, row in scenario_refs:
         if row not in index:
-            errors.append((fname, f"scenario_rows entry {row!r} is not "
-                                  f"a committed scenario"))
+            # The committed index is authoritative: membership there
+            # resolves the row outright (the elif below still lints its
+            # category).  Otherwise a name the working dataset knows is a
+            # deferred promotion — surfaced as WARN so the ledger stays
+            # countable — while a name found nowhere stays fail-closed.
+            if row in csv_names:
+                warnings.append((fname, f"scenario_rows entry {row!r} is "
+                                        f"in scenarios.csv but not a "
+                                        f"committed scenario"))
+            else:
+                errors.append((fname, f"scenario_rows entry {row!r} is "
+                                      f"not a committed scenario"))
         elif not SCENARIO_CATEGORY_RE.match(index[row]):
             errors.append((fname, f"scenario {row!r} has category "
                                   f"{index[row]!r}, not "
                                   f"'<domain>-issue-<N>' or "
                                   f"'<domain>-control'"))
+    for fname, w in warnings:
+        print(f"WARN {fname}: {w}")
     for fname, e in errors:
         print(f"ERROR {fname}: {e}")
     if errors:
         return 1
-    print("check: clean")
+    if warnings:
+        print(f"check: clean ({len(warnings)} warnings)")
+    else:
+        print("check: clean")
     return 0
 
 
