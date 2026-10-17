@@ -31,4 +31,6 @@ fi
 if [ -z "$SKIP_COMPILE" ]; then
     echo "pre-push: ./gradlew compileTestJava"
     ./gradlew compileTestJava -q
+    echo "pre-push: ./gradlew -p shortest-path checkstyleMain checkstyleTest"
+    ./gradlew -p shortest-path checkstyleMain checkstyleTest -q
 fi
