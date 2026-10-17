@@ -1353,5 +1353,9 @@ final class RoutingIssueScenarios {
                 s.setBypassVarPlayerChecks(false);
                 s.setCostBankVisit(20);
             });
+
+        suite.scenario("Inner Mor Ul Rek (#675) city approach reaches inner pocket", "routing-issue-675")
+            .from(2480, 5175, 0).to(2501, 5059, 0)
+            .profile(UNIT_TEST);
     }
 }
