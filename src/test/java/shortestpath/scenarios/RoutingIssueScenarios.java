@@ -1431,8 +1431,8 @@ final class RoutingIssueScenarios {
             .from(3050, 4829, 0).to(1816, 3856, 0)
             .profile(UNIT_TEST);
 
-        suite.scenario("Ape Atoll dungeon (#706) mining guild route reaches quest step", "routing-issue-706")
-            .from(3020, 3345, 0).to(2773, 9144, 0)
+        suite.scenario("Fremennik slayer cave (#706) basilisks to wine of zamorak slow tail", "routing-issue-706")
+            .from(2744, 10004, 0).to(3022, 10354, 0)
             .profile(UNIT_TEST);
 
         suite.scenario("Avoid wilderness (#744) still routes to Abyss via Wilderness", "routing-issue-744")
