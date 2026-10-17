@@ -28,7 +28,7 @@ import shortestpath.scenarios.Scenario;
 import shortestpath.scenarios.ScenarioRunner;
 import shortestpath.scenarios.Suites;
 import shortestpath.transport.Transport;
-import shortestpath.transport.TransportLoader;
+import shortestpath.transport.ResourceLoader;
 
 /**
  * The benchmark entry point ({@code ./gradlew benchmark --args="--manifest M --output OUT"}), called by
@@ -231,7 +231,7 @@ public final class BenchmarkMain {
      */
     static JsonObject world(RoutingStatic routing) {
         JsonObject world = new JsonObject();
-        Map<Integer, Set<Transport>> transports = TransportLoader.loadAllFromResources();
+        Map<Integer, Set<Transport>> transports = ResourceLoader.transports();
         Map<String, Integer> byType = new java.util.TreeMap<>();
         int total = 0;
         for (Set<Transport> atOrigin : transports.values()) {

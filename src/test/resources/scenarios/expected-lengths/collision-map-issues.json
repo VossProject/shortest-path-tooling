@@ -1,1 +1,17 @@
-{}
+{
+  "Wizards' Guild -> Edgeville (avoid wilderness)": 14,
+  "Duel Arena (#339) drop-off cross wall north": 67,
+  "Death Plateau (#270) descent top of climb rocks -> Burthorpe": 152,
+  "Death Plateau (#270) ascent Burthorpe -> top of climb rocks": 153,
+  "Death Plateau (#270) climb-up rocks south->north": 2,
+  "Death Plateau (#270) climb-down rocks north->south [control]": 2,
+  "Auburnvale (#193) bridge cross south -> north": 24,
+  "Auburnvale (#193) bridge cross north -> south": 25,
+  "Ancient Cavern (#374) pier -> inside cavern via whirlpool": 12,
+  "Ancient Cavern (#374) approach pier from north": 11,
+  "Fossil Island Hunter trail (#233) along trail": 10,
+  "Fossil Island Hunter trail (#233) cross trail": 13,
+  "Varrock palace trellis (control)": 36,
+  "GE centre walk (control)": 13,
+  "Ourania Cave entrance (#621) rim -> Chaos altar dig spot": 7
+}

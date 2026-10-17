@@ -2,13 +2,13 @@ package shortestpath.profiles;
 
 import java.util.EnumSet;
 import java.util.Set;
-import shortestpath.JewelleryBoxTier;
+import shortestpath.poh.JewelleryBoxTier;
 import shortestpath.ShortestPathConfig;
-import shortestpath.TeleportationItem;
+import shortestpath.settings.TeleportationItem;
 import shortestpath.accounts.Poh;
 import shortestpath.pathfinder.PathfinderBackend;
-import shortestpath.transport.PohNexusPortal;
-import shortestpath.transport.PohMountedItem;
+import shortestpath.poh.PohNexusPortal;
+import shortestpath.poh.PohMountedItem;
 
 /**
  * The plugin settings a route is planned with: a mutable {@link ShortestPathConfig}. Every
@@ -93,6 +93,7 @@ public class PluginSettings implements ShortestPathConfig {
     // -------------------------------------------------------------------------
     private String builtTeleportationBoxes = "";
     private String builtTeleportationPortalsPoh = "";
+    private String blockedTeleportItems = "";
 
     // -------------------------------------------------------------------------
     // Cost thresholds
@@ -132,6 +133,7 @@ public class PluginSettings implements ShortestPathConfig {
     private boolean unlockXericsHonour = false;
     private boolean unlockDragontoothPassage = false;
     private boolean unlockMorUlRek = false;
+    private boolean unlockBalloonLogBasket = false;
 
     // =========================================================================
     // Getters (implements ShortestPathConfig)
@@ -183,6 +185,7 @@ public class PluginSettings implements ShortestPathConfig {
 
     @Override public String builtTeleportationBoxes() { return builtTeleportationBoxes; }
     @Override public String builtTeleportationPortalsPoh() { return builtTeleportationPortalsPoh; }
+    @Override public String blockedTeleportItems() { return blockedTeleportItems; }
 
     @Override public int costAgilityShortcuts() { return costAgilityShortcuts; }
     @Override public int costGrappleShortcuts() { return costGrappleShortcuts; }
@@ -211,15 +214,11 @@ public class PluginSettings implements ShortestPathConfig {
     @Override public int costSeasonalTransports() { return costSeasonalTransports; }
     @Override public int costBankVisit() { return costBankVisit; }
     @Override public boolean respawnPrifddinas() { return respawnPrifddinas; }
-    // No @Override: the interface method only exists on the pending upstream
-    // branch, so the annotation would break compilation at the pin. The parity
-    // lint detects twins by declared method, so the surface still counts.
-    public boolean unlockCanoeAxe() { return unlockCanoeAxe; }
-    // Same in-flight state as unlockCanoeAxe — no @Override until merge + re-pin.
-    public boolean unlockXericsHonour() { return unlockXericsHonour; }
-    // Same in-flight state as unlockCanoeAxe — no @Override until merge + re-pin.
-    public boolean unlockDragontoothPassage() { return unlockDragontoothPassage; }
-    public boolean unlockMorUlRek() { return unlockMorUlRek; }
+    @Override public boolean unlockCanoeAxe() { return unlockCanoeAxe; }
+    @Override public boolean unlockXericsHonour() { return unlockXericsHonour; }
+    @Override public boolean unlockDragontoothPassage() { return unlockDragontoothPassage; }
+    @Override public boolean unlockMorUlRek() { return unlockMorUlRek; }
+    @Override public boolean unlockBalloonLogBasket() { return unlockBalloonLogBasket; }
 
     // =========================================================================
     // Abstract void setters required by the interface
@@ -368,4 +367,7 @@ public class PluginSettings implements ShortestPathConfig {
         if (poh.mountedMythical) result.add(PohMountedItem.MYTHICAL_CAPE);
         return result;
     }
+
+    public void setUnlockBalloonLogBasket(boolean v) { unlockBalloonLogBasket = v; }
+    public void setBlockedTeleportItems(String v) { blockedTeleportItems = v != null ? v : ""; }
 }

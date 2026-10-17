@@ -26,7 +26,7 @@ never commit to the wrong place.
 | `seasonal` | `scripts/verify_seasonal_regions.py` |
 | `refresh` | the ordered chain: collision-map -> cache -> regions -> bank -> seasonal |
 | `probes` | the 11 season-discovery dump tasks (8 default + 3 name-driven) |
-| `verify` | `compileTestJava` + submodule `test` + `dashboard` sweep + edge-diff |
+| `verify` | `compileTestJava` + submodule `test` + dep-lint + `dashboard` sweep + edge-diff |
 | `validate` | `scripts/validate_data.py` deterministic checks + `freshness` currency check + advisory destinations/drift/season |
 
 Run any subcommand with `--help` for its flags.
@@ -135,8 +135,9 @@ reported without masking the rest.
 ### `verify`
 
 ```bash
-python3 scripts/maintenance.py verify [--skip-compile] [--skip-lint] \
-    [--skip-dashboard] [--skip-diff] [--old-zip a.zip --new-zip b.zip]
+python3 scripts/maintenance.py verify [--fast] [--skip-compile] \
+    [--skip-lint] [--skip-dashboard] [--skip-diff] \
+    [--old-zip a.zip --new-zip b.zip]
 ```
 
 The post-update compatibility gate — four tiers, all always run (a red
@@ -145,21 +146,44 @@ tier never hides the rest), printing `PASS`/`FAIL` per tier and a final
 nonzero when any tier fails:
 
 1. `compileTestJava` — the same compile gate CI runs.
-2. `./gradlew -p shortest-path test` — the submodule's test suite
-   (`TransportDataLintTest` et al.).
-3. `dashboard` over every committed scenario suite — named by the
-   committed `src/test/resources/scenarios/expected-lengths/<suite>.json`
-   files, enumerated via `git ls-files`, so gitignored scratch state can
-   never enter the sweep.
+2. `lint` — `./gradlew -p shortest-path test`, the submodule's test
+   suite (`TransportDataLintTest` et al., including the three
+   boundary lints `RequirementPackageBoundaryTest`,
+   `AStarPackageDependencyTest`, and `PluginDependencyRuleTest`), then
+   a named `--tests shortestpath.PluginDependencyRuleTest` filter as a
+   second leg. All three lints live inside the plugin repo, so the
+   seam rules fail for contributors working in `shortest-path`
+   directly — not only through this harness. The named filter keeps
+   the gate honest if the class is ever renamed: Gradle fails a
+   `--tests` selection that matches no class. CI carries the same
+   three filters as a `Dependency boundary lint` step in the build
+   job.
+3. `dashboard` — one `./gradlew dashboard -PdashboardSuite=all`
+   invocation runs every committed scenario suite in a single JVM (the
+   suite list comes from `./gradlew -q scenarioIndex`, the Java
+   registry, so gitignored scratch state can never enter the sweep)
+   and publishes each suite's bundle incrementally. Progress streams
+   via the per-suite `--- suite k/N:` boundary lines and the `[i/N]`
+   scenario heartbeats.
    Pass/fail derives solely from each bundle's `report.json` run records
    (`reached` falsy or `assertionPassed` false) — the task sets
-   `ignoreFailures = true`, so Gradle's exit code carries no signal and a
-   missing or unparseable report fails the tier closed.
+   `ignoreFailures = true`, so Gradle's exit code carries no signal and
+   a missing, unparseable, or empty report fails the tier closed,
+   attributed to the suite's slug.
 4. Collision-map edge-diff: the superproject-pinned gitlink artifact vs
    the worktree zip, compared by `compare_collision_maps.py`. Identical
    zips report "no edge changes" and pass; a non-empty diff is review
    evidence, not a failure. `--old-zip`/`--new-zip` (given together)
    override both sides.
+
+`--fast` narrows only the dashboard tier to the canonical suite's
+`smoke` tag — a single `./gradlew dashboard -PdashboardSuite=canonical
+-PdashboardTier=smoke` run whose `canonical-smoke` bundle must still
+contain a non-empty `runs` array (an empty or missing report fails the
+tier — the fast path exists to catch exactly that). It composes with
+the `--skip-*` flags, so `verify --fast --skip-lint --skip-diff` is the
+smallest meaningful signal for the dev loop. The full sweep remains
+the merge/release gate.
 
 Evidence stays under `build/` — `verify` writes no committed log.
 
@@ -336,8 +360,8 @@ For a reported transport/routing bug that resolves to a TSV fix:
   consumer merges — `regions --f2p` forces the copy for feature-branch
   work.
 - Verification evidence is ephemeral `build/` output — there is no
-  committed verification log; weekly verification is for the maintainer's
-  own confidence.
+  committed verification log; weekly verification is a confidence pass
+  for upstream-facing work.
 - In-game smoke testing is the conditional manual tier: reserve it for
   release gates and API-touching updates. The RuneLite client cannot be
   automated, so it is deliberately not part of `verify`.

@@ -11,7 +11,7 @@ import net.runelite.api.Skill;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
-import shortestpath.TeleportationItem;
+import shortestpath.settings.TeleportationItem;
 import shortestpath.accounts.Spellbook;
 import shortestpath.accounts.Unlock;
 
@@ -54,7 +54,8 @@ final class RoutingIssueScenarios {
         suite.scenario("SW Ape Atoll (#261) unreachable until collision fix", "routing-issue-261")
             .from(2760, 2780, 0).to(2650, 2740, 0)
             .profile(UNIT_TEST)
-            .minimumLength(279);
+            .minimumLength(279)
+            .expectUnreachable();
 
         suite.scenario("RFD dining room (#288) cannot enter until door mapped", "routing-issue-288")
             .from(3213, 3221, 0).to(1866, 5323, 0)
@@ -415,7 +416,8 @@ final class RoutingIssueScenarios {
         suite.scenario("Ape Atoll bridge (#265) jump-off shortcut missing", "routing-issue-265")
             .from(2805, 2735, 0).to(2820, 2700, 0)
             .profile(UNIT_TEST)
-            .minimumLength(42);
+            .minimumLength(42)
+            .expectUnreachable();
 
         suite.scenario("Ape Atoll SE (#265) control pocket walk", "routing-control")
             .from(2820, 2700, 0).to(2850, 2680, 0)

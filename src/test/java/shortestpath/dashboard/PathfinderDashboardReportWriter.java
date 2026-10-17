@@ -11,15 +11,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import shortestpath.ItemVariations;
 import shortestpath.WorldPointUtil;
+import shortestpath.pathfinder.BankVisitState;
 import shortestpath.pathfinder.PathfinderConfig;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.PathStep;
 import shortestpath.pathfinder.TransportAvailability;
 import shortestpath.transport.Transport;
-import shortestpath.transport.TransportLoader;
+import shortestpath.transport.ResourceLoader;
 import shortestpath.transport.TransportType;
-import shortestpath.transport.requirement.ItemRequirement;
-import shortestpath.transport.requirement.TransportItems;
+import shortestpath.requirement.model.ItemRequirement;
+import shortestpath.requirement.model.TransportItems;
 
 public class PathfinderDashboardReportWriter {
     // This class is the translation layer from pathfinder/test domain objects into the JSON model consumed by the
@@ -138,16 +139,16 @@ public class PathfinderDashboardReportWriter {
     // Reachability dashboards use one concrete PathfinderConfig, so the overlay can classify transports by whether
     // they are available before banking, after banking, or not available in that config at all.
     public List<PathfinderDashboardModels.TransportLayerTransport> createTransportLayerPoints(PathfinderConfig config) {
-        Map<TransportKey, Transport> allTransports = indexTransports(TransportLoader.loadAllFromResources());
-        Set<TransportKey> withoutBank = collectAvailableTransportKeys(config, false);
-        Set<TransportKey> withBank = collectAvailableTransportKeys(config, true);
+        Map<TransportKey, Transport> allTransports = indexTransports(ResourceLoader.transports());
+        Set<TransportKey> withoutBank = collectAvailableTransportKeys(config, BankVisitState.CARRIED);
+        Set<TransportKey> withBank = collectAvailableTransportKeys(config, BankVisitState.BANKED);
         return createTransportLayerPoints(allTransports, withoutBank, withBank);
     }
 
     // Scenario dashboards mix many bespoke test setups together, so the most useful overlay is the full transport
     // graph rendered as available everywhere rather than a misleading snapshot from one scenario's config.
     public List<PathfinderDashboardModels.TransportLayerTransport> createTransportLayerPointsAlwaysAvailable() {
-        Map<TransportKey, Transport> allTransports = indexTransports(TransportLoader.loadAllFromResources());
+        Map<TransportKey, Transport> allTransports = indexTransports(ResourceLoader.transports());
         return createTransportLayerPoints(allTransports, allTransports.keySet(), allTransports.keySet());
     }
 
@@ -186,7 +187,7 @@ public class PathfinderDashboardReportWriter {
         return indexed;
     }
 
-    private static Set<TransportKey> collectAvailableTransportKeys(PathfinderConfig config, boolean bankVisited) {
+    private static Set<TransportKey> collectAvailableTransportKeys(PathfinderConfig config, BankVisitState bankVisited) {
         Set<TransportKey> keys = new HashSet<>();
 
         for (int origin : config.getTransportsPacked(bankVisited).keys()) {
@@ -232,7 +233,7 @@ public class PathfinderDashboardReportWriter {
             PathStep destinationStep = path.get(i);
             int origin = originStep.getPackedPosition();
             int destination = destinationStep.getPackedPosition();
-            boolean bankVisited = destinationStep.isBankVisited();
+            BankVisitState bankVisited = destinationStep.getBankVisitState();
 
             // Physical transports at the origin tile — these are always shown.
             Transport[] physicalTransports = config.getTransportsPacked(bankVisited).getOrDefault(origin, TransportAvailability.EMPTY_TRANSPORTS);
@@ -545,7 +546,7 @@ public class PathfinderDashboardReportWriter {
             run.bankEvents = null;
             return;
         }
-        boolean any = path.stream().anyMatch(PathStep::isBankVisited);
+        boolean any = path.stream().anyMatch(step -> step.getBankVisitState() == BankVisitState.BANKED);
         run.bankVisitedOnPath = any;
         List<BankTransition> transitions = collectBankTransitions(path);
         List<PathfinderDashboardModels.BankEvent> events = new ArrayList<>();
@@ -634,7 +635,8 @@ public class PathfinderDashboardReportWriter {
         List<BankTransition> out = new ArrayList<>();
         for (int i = 0; i < path.size(); i++) {
             PathStep step = path.get(i);
-            boolean transitionedIntoBankState = step.isBankVisited() && (i == 0 || !path.get(i - 1).isBankVisited());
+            boolean transitionedIntoBankState = step.getBankVisitState() == BankVisitState.BANKED
+                    && (i == 0 || path.get(i - 1).getBankVisitState() != BankVisitState.BANKED);
             if (transitionedIntoBankState) {
                 int transitionIndex = Math.max(0, i - 1);
                 out.add(new BankTransition(transitionIndex, path.get(transitionIndex).getPackedPosition()));
@@ -652,7 +654,7 @@ public class PathfinderDashboardReportWriter {
     }
 
     private static PathfinderDashboardModels.WorldPointJson worldPoint(int packedPoint) {
-        return worldPoint(new PathStep(packedPoint, false));
+        return worldPoint(new PathStep(packedPoint, BankVisitState.CARRIED));
     }
 
     private static PathfinderDashboardModels.WorldPointJson worldPoint(PathStep step) {
@@ -660,7 +662,7 @@ public class PathfinderDashboardReportWriter {
         point.x = WorldPointUtil.unpackWorldX(step.getPackedPosition());
         point.y = WorldPointUtil.unpackWorldY(step.getPackedPosition());
         point.plane = WorldPointUtil.unpackWorldPlane(step.getPackedPosition());
-        point.bankVisited = step.isBankVisited();
+        point.bankVisited = step.getBankVisitState() == BankVisitState.BANKED;
         return point;
     }
 

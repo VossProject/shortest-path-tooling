@@ -1587,6 +1587,16 @@ def test_scan_report_wrong_shape_fails_closed(tmp_path):
         assert failures and str(bad) in failures[0], payload
 
 
+def test_scan_report_rejects_empty_runs(tmp_path):
+    # A vacuous bundle — an empty runs list or no runs key at all —
+    # can never read as green: it fails closed like a missing file.
+    # This is the check the fast smoke tier depends on.
+    bad = tmp_path / "report.json"
+    for payload in ('{"runs": []}', '{"title": "x"}'):
+        bad.write_text(payload)
+        assert mm.scan_report(bad) == [f"empty report: {bad}"], payload
+
+
 def test_scan_report_exempts_expected_unreachable(tmp_path):
     # An explicit expectedReachable=false exempts an unreached run —
     # intentional-failure dataset rows must not read as failures.
@@ -1628,9 +1638,28 @@ def test_scan_report_reached_expected_unreachable_is_a_failure(tmp_path):
         "reach: Expected unreachable but path found"]
 
 
+def test_scan_report_flags_expected_runs_mismatch(tmp_path):
+    # summary.expectedRuns declares the scenario count the sweep
+    # scheduled; fewer records is dropped coverage, not a green run.
+    report = write_report(tmp_path / "report.json", [make_run_record()])
+    data = json.loads(report.read_text())
+    data["summary"] = {"expectedRuns": 2}
+    report.write_text(json.dumps(data))
+    failures = mm.scan_report(report)
+    assert failures and "2" in failures[0]
+    # A matching count stays green; an absent field is skipped.
+    data["summary"]["expectedRuns"] = 1
+    report.write_text(json.dumps(data))
+    assert mm.scan_report(report) == []
+    del data["summary"]["expectedRuns"]
+    report.write_text(json.dumps(data))
+    assert mm.scan_report(report) == []
+
+
 def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
-                    lint_rc=0, runs_for=None, missing_reports=(),
-                    ls_tree_rc=0,
+                    lint_rc=0, dep_lint_rc=0, dashboard_rc=0,
+                    runs_for=None,
+                    missing_reports=(), ls_tree_rc=0,
                     gitlink="160000 commit deadbeefcafe\tshortest-path",
                     show_bytes=b"OLDZIP", show_rc=0,
                     diff_stdout="EDGE TOTALS\n", diff_rc=0):
@@ -1653,18 +1682,29 @@ def make_verify_run(repo, calls, *, datasets=None, compile_rc=0,
         if cmd[:2] == ["./gradlew", "dashboard"]:
             suite = next(a.split("=", 1)[1] for a in cmd
                          if a.startswith("-PdashboardSuite="))
-            csv = suite
-            slug = suite.lower().replace("_", "-")
-            runs = (runs_for(csv) if runs_for
-                    else [make_run_record(csv)])
-            if csv not in missing_reports:
-                write_report(
-                    repo / "build" / "reports" /
-                    "pathfinder-dashboard" / "bundles" / slug /
-                    "report.json", runs)
-            return cp(cmd, f"dashboard {csv}\n")
+            tier = next((a.split("=", 1)[1] for a in cmd
+                         if a.startswith("-PdashboardTier=")), "")
+            # all-mode runs every listed suite in one invocation and
+            # publishes each bundle incrementally under its own slug;
+            # a selected tier joins the stem the way dashboards.gradle's
+            # sourceStem appends _<tier> before the slug fold.
+            suites = datasets if suite == "all" else [suite]
+            for csv in suites:
+                stem = csv + ("_" + tier if tier else "")
+                slug = stem.lower().replace("_", "-")
+                runs = (runs_for(csv) if runs_for
+                        else [make_run_record(csv)])
+                if csv not in missing_reports:
+                    write_report(
+                        repo / "build" / "reports" /
+                        "pathfinder-dashboard" / "bundles" / slug /
+                        "report.json", runs)
+            return cp(cmd, f"dashboard {suite}\n", rc=dashboard_rc)
         if cmd[:2] == ["./gradlew", "compileTestJava"]:
             return cp(cmd, rc=compile_rc)
+        if cmd[:5] == ["./gradlew", "-p", "shortest-path", "test",
+                       "--tests"]:
+            return cp(cmd, rc=dep_lint_rc)
         if cmd[:4] == ["./gradlew", "-p", "shortest-path", "test"]:
             return cp(cmd, rc=lint_rc)
         if cmd[0] == sys.executable:
@@ -1705,19 +1745,29 @@ def verify_kind(cmd):
 def test_verify_derives_datasets_from_scenario_suites(tmp_path,
                                                    monkeypatch):
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    seen = []
+    real = mm.scan_report
+
+    def spy(path):
+        seen.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(mm, "scan_report", spy)
     rc = mm.main(["verify"])
     assert rc == 0
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
-    assert len(dashboards) == len(DASHBOARD_CSVS)
-    for cmd in dashboards:
-        assert "-PdashboardProfile=false" in cmd
-    swept = sorted(
-        next(a for a in c if a.startswith("-PdashboardSuite="))
-        .split("=", 1)[1] for c in dashboards)
-    assert swept == sorted(DASHBOARD_CSVS)
+    # The sweep is exactly one JVM invocation — the per-suite Gradle
+    # loop is gone.
+    assert dashboards == [["./gradlew", "dashboard",
+                           "-PdashboardSuite=all",
+                           "-PdashboardProfile=false"]]
     # The list comes from the Java suite registry, never a directory glob.
     assert ["./gradlew", "-q", "scenarioIndex"] in [c for c, _ in calls]
+    # Every suite's report is still scanned individually by slug.
+    scanned = sorted(p.parent.name for p in seen)
+    assert scanned == sorted(
+        s.lower().replace("_", "-") for s in DASHBOARD_CSVS)
 
 
 def test_verify_unparseable_index_fails_closed(tmp_path, monkeypatch,
@@ -1738,6 +1788,8 @@ def test_verify_unparseable_index_fails_closed(tmp_path, monkeypatch,
 
 
 def test_verify_datasets_single_suite(tmp_path, monkeypatch):
+    # Even a one-suite index goes through the consolidated all-mode
+    # call — the sweep never reverts to a per-suite argv.
     repo, _, calls = prepare_verify(
         tmp_path, monkeypatch, datasets=["routes"])
     rc = mm.main(["verify"])
@@ -1745,28 +1797,113 @@ def test_verify_datasets_single_suite(tmp_path, monkeypatch):
     dashboards = [c for c, _ in calls
                   if c[:2] == ["./gradlew", "dashboard"]]
     assert len(dashboards) == 1
-    assert "-PdashboardSuite=routes" in dashboards[0]
+    assert "-PdashboardSuite=all" in dashboards[0]
 
 
 def test_verify_overlay_flags(tmp_path, monkeypatch):
+    # Seasonal/f2p overlays derive from each suite's bundle-name prefix
+    # inside the dashboard task — the consolidated argv must carry no
+    # per-suite flags at all.
     repo, _, calls = prepare_verify(tmp_path, monkeypatch)
     rc = mm.main(["verify"])
     assert rc == 0
-    by_dataset = {}
-    for cmd, _ in calls:
-        if cmd[:2] != ["./gradlew", "dashboard"]:
-            continue
-        name = next(a for a in cmd
-                    if a.startswith("-PdashboardSuite=")).split(
-                        "=", 1)[1]
-        by_dataset[name] = cmd
-    assert "-PdashboardSeasonal=true" in \
-        by_dataset["seasonal-briefcase-routes"]
-    assert "-PdashboardF2p=true" in by_dataset["f2p-routes"]
-    assert not any("dashboardSeasonal" in a
-                   for a in by_dataset["routes"])
-    assert not any("dashboardF2p" in a
-                   for a in by_dataset["routes"])
+    dashboards = [c for c, _ in calls
+                  if c[:2] == ["./gradlew", "dashboard"]]
+    assert len(dashboards) == 1
+    assert not any("dashboardSeasonal" in a for a in dashboards[0])
+    assert not any("dashboardF2p" in a for a in dashboards[0])
+
+
+def test_verify_missing_suite_report_names_the_suite(
+        tmp_path, monkeypatch, capsys):
+    # A suite the index lists but whose bundle never landed must fail
+    # the tier attributed by slug — the consolidated call's exit code
+    # carries no per-suite signal.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["f2p-routes"])
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "f2p-routes" in out
+
+
+def test_verify_stale_bundle_never_scans_green(tmp_path, monkeypatch,
+                                              capsys):
+    # A suite the sweep never reached must fail on a missing report —
+    # not pass on the previous run's bundle, which a crashed sweep
+    # would leave under the same slug.  do_verify wipes each stem's
+    # bundle dir before the sweep republishes it.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["f2p-routes"])
+    stale = (repo / "build" / "reports" / "pathfinder-dashboard" /
+             "bundles" / "f2p-routes" / "report.json")
+    write_report(stale, [make_run_record("green last run")])
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "missing or unreadable report" in out
+    assert "f2p-routes" in out
+
+
+def test_verify_fast_wipes_stale_smoke_bundle(tmp_path, monkeypatch,
+                                              capsys):
+    # The --fast path is covered too: the canonical-smoke bundle is
+    # deleted before the narrowed run, so a stale smoke report cannot
+    # substitute for a crashed one.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, missing_reports=["canonical"])
+    stale = (repo / "build" / "reports" / "pathfinder-dashboard" /
+             "bundles" / "canonical-smoke" / "report.json")
+    write_report(stale, [make_run_record("green last run")])
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 1
+    assert "missing or unreadable report" in capsys.readouterr().out
+
+
+def test_verify_fast(tmp_path, monkeypatch, capsys):
+    # --fast narrows only the dashboard tier: one single-suite
+    # canonical smoke invocation — never the all-mode sweep — whose
+    # tier-suffixed bundle still has to carry real runs.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    seen = []
+    real = mm.scan_report
+
+    def spy(path):
+        seen.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(mm, "scan_report", spy)
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 0
+    dashboards = [c for c, _ in calls
+                  if c[:2] == ["./gradlew", "dashboard"]]
+    assert dashboards == [["./gradlew", "dashboard",
+                           "-PdashboardSuite=canonical",
+                           "-PdashboardTier=smoke",
+                           "-PdashboardProfile=false"]]
+    assert [p.parent.name for p in seen] == ["canonical-smoke"]
+    assert "PASS dashboard" in capsys.readouterr().out
+
+    # --fast composes with the --skip-* flags; the dashboard tier is
+    # the only thing it narrows.
+    repo, _, calls = prepare_verify(tmp_path / "narrow", monkeypatch)
+    rc = mm.main(["verify", "--fast", "--skip-lint", "--skip-diff"])
+    assert rc == 0
+    assert not any(c[:4] == ["./gradlew", "-p", "shortest-path", "test"]
+                   for c, _ in calls)
+    assert not any(c[:3] == ["git", "ls-tree", "HEAD"] for c, _ in calls)
+    assert any("-PdashboardTier=smoke" in a for c, _ in calls
+               for a in c)
+
+    # A vacuous smoke report fails the tier — catching exactly this is
+    # the point of the fast path.
+    repo, _, calls = prepare_verify(
+        tmp_path / "empty", monkeypatch, runs_for=lambda csv: [])
+    rc = mm.main(["verify", "--fast"])
+    assert rc == 1
+    assert "empty report" in capsys.readouterr().out
 
 
 def test_verify_compile_failure_marks_tier_but_continues(
@@ -1789,6 +1926,30 @@ def test_verify_missing_report_fails_tier(tmp_path, monkeypatch,
     repo, _, calls = prepare_verify(
         tmp_path, monkeypatch, missing_reports=DASHBOARD_CSVS)
     rc = mm.main(["verify"])
+    assert rc == 1
+    assert "FAIL dashboard" in capsys.readouterr().out
+
+
+def test_verify_dashboard_nonzero_exit_fails_tier(tmp_path, monkeypatch,
+                                                  capsys):
+    # Under ignoreFailures a nonzero dashboard exit can only be
+    # infrastructure failure (compile error, task misconfiguration,
+    # JVM death) — the tier must fail on it even when every scanned
+    # report is green.
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, dashboard_rc=1)
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL dashboard" in out
+    assert "dashboard sweep exited 1" in out
+
+
+def test_verify_dashboard_nonzero_exit_fast(tmp_path, monkeypatch,
+                                            capsys):
+    repo, _, calls = prepare_verify(
+        tmp_path, monkeypatch, dashboard_rc=1)
+    rc = mm.main(["verify", "--fast"])
     assert rc == 1
     assert "FAIL dashboard" in capsys.readouterr().out
 
@@ -1925,12 +2086,48 @@ def test_verify_skip_flags(tmp_path, monkeypatch):
     assert mm.main(["verify", "--skip-lint"]) == 0
     assert not any(c[:4] == ["./gradlew", "-p", "shortest-path",
                              "test"] for c, _ in calls)
+    # --skip-lint also omits the named dep-lint leg — same tier.
+    assert not any(c[:5] == ["./gradlew", "-p", "shortest-path", "test",
+                             "--tests"] for c, _ in calls)
 
     repo, _, calls = prepare_verify(tmp_path / "d", monkeypatch)
     assert mm.main(["verify", "--skip-diff"]) == 0
     assert not any(c[:3] == ["git", "ls-tree", "HEAD"]
                    for c, _ in calls)
     assert not any(c[0] == sys.executable for c, _ in calls)
+
+
+def test_verify_runs_dep_lint(tmp_path, monkeypatch):
+    # The lint tier issues the named dependency-rule filter after the
+    # submodule blob — PluginDependencyRuleTest now lives inside the
+    # plugin repo's own test tree, so the same -p shortest-path task
+    # runs it; the named filter stays so a renamed class fails the
+    # gate on Gradle's no-match check.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch)
+    rc = mm.main(["verify"])
+    assert rc == 0
+    kinds = [verify_kind(c) for c, _ in calls]
+    assert ["./gradlew", "-p", "shortest-path", "test", "--tests",
+            "shortestpath.PluginDependencyRuleTest"] in [
+        c for c, _ in calls]
+    # Both legs land in the lint tier, submodule blob first.
+    lints = [c for c, _ in calls if verify_kind(c) == "lint"]
+    assert lints[0][:4] == ["./gradlew", "-p", "shortest-path", "test"]
+    assert lints[1][:5] == ["./gradlew", "-p", "shortest-path", "test",
+                           "--tests"]
+
+
+def test_verify_dep_lint_failure_fails_lint_tier(tmp_path, monkeypatch,
+                                                  capsys):
+    # A red dep-lint marks FAIL lint and names the filtered command —
+    # the gate is blocking, not advisory.
+    repo, _, calls = prepare_verify(tmp_path, monkeypatch,
+                                    dep_lint_rc=1)
+    rc = mm.main(["verify"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL lint" in out
+    assert "PluginDependencyRuleTest" in out
 
 
 def test_verify_returns_nonzero_on_any_tier_failure(

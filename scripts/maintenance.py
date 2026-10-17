@@ -29,8 +29,10 @@ Subcommands:
     probes         run every season-discovery cache dumper in
                    sequence; ``--names-file`` adds the name-driven scans
     verify         run the compatibility gate: compileTestJava ->
-                   submodule test -> dashboard sweep over every
-                   committed scenario suite -> collision-map edge-diff
+                   submodule test -> one consolidated dashboard sweep
+                   over every committed scenario suite (``--fast``
+                   narrows it to the canonical suite's smoke tier) ->
+                   collision-map edge-diff
     validate       run the data-validation checks — deterministic hard
                    gate plus advisory drift/season tiers
 """
@@ -944,8 +946,23 @@ def scan_report(path: Path) -> List[str]:
     runs = data.get("runs")
     if runs is not None and not isinstance(runs, list):
         return [f"unexpected report shape: {path}"]
+    # An empty or absent runs list can never read as green — a suite
+    # that crashed before producing records, or a selection that
+    # matched no scenarios, would otherwise pass the tier vacuously.
+    if not runs:
+        return [f"empty report: {path}"]
     failures = []
-    for r in runs or []:
+    # A report that declares how many scenarios it expected must carry
+    # that many run records — totalRuns counts only what exists, so a
+    # dropped slot would otherwise read as full coverage.
+    summary = data.get("summary")
+    if isinstance(summary, dict):
+        expected = summary.get("expectedRuns")
+        if type(expected) is int and expected != len(runs):
+            failures.append(
+                f"{len(runs)} run record(s) for {expected} expected "
+                f"in {path}")
+    for r in runs:
         if not isinstance(r, dict):
             failures.append(f"malformed run record in {path}")
             continue
@@ -1015,8 +1032,8 @@ def _scenario_progress_hook(desc: str):
 
 
 def do_verify(args: argparse.Namespace) -> int:
-    """Four-tier compatibility gate: compile -> submodule test ->
-    dashboard sweep -> collision edge-diff.
+    """Four-tier compatibility gate: compile -> submodule test +
+    harness dep-lint -> dashboard sweep -> collision edge-diff.
 
     Every tier runs even when an earlier one fails — the maintainer
     wants the whole picture, not just the first red.  The compile and
@@ -1047,41 +1064,99 @@ def do_verify(args: argparse.Namespace) -> int:
 
     if not args.skip_lint:
         t0 = timed_tier("lint")
+        failures = []
         # The whole submodule test task — strictly more coverage than
-        # *LintTest alone.
+        # *LintTest alone, and it carries all three boundary lints
+        # (RequirementPackageBoundaryTest, AStarPackageDependencyTest,
+        # PluginDependencyRuleTest) — every seam rule lives inside the
+        # plugin repo so it fails for contributors working there
+        # directly, not only through this harness.
         proc = run(["./gradlew", "-p", "shortest-path", "test"],
                    cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
-        tiers["lint"] = ([] if proc.returncode == 0 else [
-            f"submodule test exited {proc.returncode}"])
+        if proc.returncode != 0:
+            failures.append(
+                f"submodule test exited {proc.returncode}")
+        # The dependency-rule lint rides the submodule blob above, but
+        # the tier also names it in its own --tests filter so a renamed
+        # or removed lint class fails the gate rather than silently
+        # thinning coverage.  Gradle exits nonzero with "No tests found
+        # for given includes" when a filter matches nothing, so the
+        # gate can never pass on an empty selection.
+        proc = run(["./gradlew", "-p", "shortest-path", "test",
+                    "--tests", "shortestpath.PluginDependencyRuleTest"],
+                   cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS, stream=True)
+        if proc.returncode != 0:
+            failures.append(
+                "dep-lint shortestpath.PluginDependencyRuleTest "
+                f"exited {proc.returncode}")
+        tiers["lint"] = failures
         tier_done("lint", t0)
 
     if not args.skip_dashboard:
         t0 = timed_tier("dashboard")
         failures = []
-        datasets = dashboard_datasets()
-        if not datasets:
-            # An empty sweep is a broken gate, not a green one.
-            failures.append(
-                "no dashboard suites listed by ./gradlew scenarioIndex")
-        for idx, suite in enumerate(datasets, 1):
+        if args.fast:
+            # --fast narrows only this tier to the canonical suite's
+            # smoke tag — a quick signal that still cannot pass
+            # vacuously: scan_report rejects a missing, malformed, or
+            # empty report.  The tier suffix joins the stem the way
+            # dashboards.gradle's sourceStem appends _<tier> before
+            # the slug fold.
             argv = ["./gradlew", "dashboard",
-                    f"-PdashboardSuite={suite}",
+                    "-PdashboardSuite=canonical",
+                    "-PdashboardTier=smoke",
                     "-PdashboardProfile=false"]
-            # Belt-and-braces over the slug auto-tagging — a renamed
-            # suite would otherwise lose its overlay silently.
-            if suite.startswith("seasonal-"):
-                argv.append("-PdashboardSeasonal=true")
-            if suite.startswith("f2p-"):
-                argv.append("-PdashboardF2p=true")
-            slug = suite.lower().replace("_", "-")
-            print(f"--- suite {idx}/{len(datasets)}: {suite}",
-                  flush=True)
-            hook = _scenario_progress_hook(slug)
-            run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
-                stream=True, on_line=hook)
+            stems = ["canonical_smoke"]
+        else:
+            datasets = dashboard_datasets()
+            if not datasets:
+                # An empty sweep is a broken gate, not a green one.
+                failures.append(
+                    "no dashboard suites listed by "
+                    "./gradlew scenarioIndex")
+                argv = None
+                stems = []
+            else:
+                # One JVM runs every suite and publishes each bundle
+                # incrementally; the per-suite seasonal/f2p overlays
+                # now derive from each suite's slug on the Java side,
+                # so the consolidated argv carries no per-suite flags.
+                argv = ["./gradlew", "dashboard",
+                        "-PdashboardSuite=all",
+                        "-PdashboardProfile=false"]
+                stems = datasets
+        if argv is not None:
+            # Every report the scan below consults must come from this
+            # sweep: a crashed all-run otherwise leaves a previous run's
+            # bundles under the same slugs, which would scan green.
+            # Delete each stem's bundle before the sweep republishes it —
+            # a suite whose turn never comes then fails closed on a
+            # missing report.
+            bundles_dir = (REPO / "build" / "reports" /
+                           "pathfinder-dashboard" / "bundles")
+            for stem in stems:
+                slug = stem.lower().replace("_", "-")
+                shutil.rmtree(bundles_dir / slug, ignore_errors=True)
+            hook = _scenario_progress_hook(
+                stems[0] if args.fast else "all")
+            proc = run(argv, cwd=REPO, timeout=GRADLE_TIMEOUT_SECONDS,
+                       stream=True, on_line=hook)
             hook.close()
-            # profile=false makes the bundle name equal the slug —
+            # ignoreFailures turns scenario failures into report
+            # records, so a nonzero exit can only be infrastructure
+            # failure — test-class compilation, task misconfiguration,
+            # or worker JVM death.  Fail the tier on it; the report
+            # scan alone cannot see a JVM that died outright.
+            if proc.returncode != 0:
+                failures.append(
+                    f"dashboard sweep exited {proc.returncode}")
+        # Each suite's report.json is scanned individually, so a bundle
+        # that is missing, malformed, or empty still fails the tier
+        # attributed by slug.
+        for stem in stems:
+            # profile=false keeps the bundle name equal to the slug —
             # the same derivation dashboards.gradle applies.
+            slug = stem.lower().replace("_", "-")
             report = (REPO / "build" / "reports" / "pathfinder-dashboard" /
                       "bundles" / slug / "report.json")
             failures.extend(scan_report(report))
@@ -1567,15 +1642,23 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     vf = sub.add_parser(
         "verify",
-        help="Run the compatibility gate: compile -> submodule test "
-             "-> dashboard sweep over committed scenario suites -> "
+        help="Run the compatibility gate: compile -> submodule test + "
+             "harness dependency-rule lint -> one consolidated "
+             "dashboard sweep over committed scenario suites -> "
              "collision-map edge-diff")
+    vf.add_argument(
+        "--fast", action="store_true",
+        help="Narrow the dashboard tier to the canonical suite's "
+             "smoke tier — a quick non-vacuous signal for the dev "
+             "loop. Composes with --skip-*: 'verify --fast "
+             "--skip-lint --skip-diff' is the smallest meaningful "
+             "gate; the full sweep stays the merge/release gate")
     vf.add_argument(
         "--skip-compile", action="store_true",
         help="Omit the compileTestJava tier")
     vf.add_argument(
         "--skip-lint", action="store_true",
-        help="Omit the submodule test tier")
+        help="Omit the submodule test + dependency-rule lint tier")
     vf.add_argument(
         "--skip-dashboard", action="store_true",
         help="Omit the dashboard sweep tier")

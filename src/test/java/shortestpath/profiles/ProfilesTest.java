@@ -19,9 +19,10 @@ import net.runelite.api.gameval.VarbitID;
 import org.junit.Test;
 import shortestpath.WorldPointUtil;
 import shortestpath.accounts.Poh;
+import shortestpath.pathfinder.BankVisitState;
 import shortestpath.accounts.canonical.CanonicalAccounts;
-import shortestpath.transport.PohMountedItem;
-import shortestpath.transport.PohNexusPortal;
+import shortestpath.poh.PohMountedItem;
+import shortestpath.poh.PohNexusPortal;
 
 public class ProfilesTest {
     private static CompiledAccount canonical(String name) {
@@ -31,7 +32,7 @@ public class ProfilesTest {
     @Test
     public void canonicalProfilesUseConcreteFactsAndQuestStates() {
         CompiledAccount mid = canonical("mid");
-        assertNotNull(mid.getConfig().bank);
+        assertNotNull(mid.getItemState().getBank());
         assertEquals(80, mid.getClient().getBoostedSkillLevel(Skill.ATTACK));
         assertEquals(1, mid.getClient().getVarbitValue(VarbitID.ARDOUGNE_DIARY_HARD_COMPLETE));
         assertEquals(QuestState.FINISHED, mid.getConfig().getQuestState(Quest.THE_GRAND_TREE));
@@ -44,11 +45,11 @@ public class ProfilesTest {
 
     @Test
     public void canonicalProfilesPlantSpiritTreesIndependentlyOfThePoh() {
-        assertEquals(Set.of(), canonical("early").getConfig().availableSpiritTrees);
-        assertEquals(Set.of("Farming Guild"), canonical("mid").getConfig().availableSpiritTrees);
-        assertEquals(Set.of("Farming Guild", "Port Sarim"), canonical("end").getConfig().availableSpiritTrees);
+        assertEquals(Set.of(), canonical("early").getConfig().getSpiritTrees().getAvailableSpiritTrees());
+        assertEquals(Set.of("Farming Guild"), canonical("mid").getConfig().getSpiritTrees().getAvailableSpiritTrees());
+        assertEquals(Set.of("Farming Guild", "Port Sarim"), canonical("end").getConfig().getSpiritTrees().getAvailableSpiritTrees());
         assertEquals(Set.of("Farming Guild", "Port Sarim", "Etceteria", "Brimhaven", "Hosidius"),
-            canonical("maxed").getConfig().availableSpiritTrees);
+            canonical("maxed").getConfig().getSpiritTrees().getAvailableSpiritTrees());
         assertFalse(canonical("mid").getSettings().usePohSpiritTree());
         assertTrue(canonical("end").getSettings().usePohSpiritTree());
     }
@@ -64,9 +65,9 @@ public class ProfilesTest {
     public void earlyFishingTrawlerTeleportUsesTheProfileClock() {
         Setup cooldown = Profiles.EARLY.setup(new ProfileContext(WorldPointUtil.UNDEFINED, true));
         cooldown.account.minigameTeleportUsedAt(CanonicalAccounts.NOW_MINUTES - 10);
-        assertTrue(Arrays.stream(canonical("early").getConfig().getUsableTeleports(false))
+        assertTrue(Arrays.stream(canonical("early").getConfig().getUsableTeleports(BankVisitState.CARRIED))
             .anyMatch(transport -> "Fishing Trawler Minigame Teleport".equals(transport.getDisplayInfo())));
-        assertTrue(Arrays.stream(cooldown.compile().getConfig().getUsableTeleports(false))
+        assertTrue(Arrays.stream(cooldown.compile().getConfig().getUsableTeleports(BankVisitState.CARRIED))
             .noneMatch(transport -> "Fishing Trawler Minigame Teleport".equals(transport.getDisplayInfo())));
     }
 
@@ -80,7 +81,7 @@ public class ProfilesTest {
         assertEquals(QuestState.FINISHED, unitTest.getConfig().getQuestState(Quest.RUM_DEAL));
         assertEquals(30, unitTest.getSettings().calculationCutoff());
         assertNull(unitTest.getClient().getItemContainer(InventoryID.INV));
-        assertNull(unitTest.getConfig().bank);
+        assertNull(unitTest.getItemState().getBank());
         assertEquals(3222, unitTest.getClient().getLocalPlayer().getWorldLocation().getX());
 
         CompiledAccount seasonal = Profiles.SEASONAL.setup(new ProfileContext(start, true)).compile();

@@ -9,8 +9,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public final class DashboardBundlePublisher {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -23,8 +27,9 @@ public final class DashboardBundlePublisher {
     // dataset filename. Path.resolve would silently accept separators
     // and absolute paths, so an operator-supplied -PdashboardBundle
     // must be confined to the slug alphabet or '../' segments escape
-    // the reports tree.
-    private static final Pattern BUNDLE_NAME_PATTERN = Pattern.compile("[A-Za-z0-9._-]+");
+    // the reports tree. The leading character must be alphanumeric so
+    // '.' and '..' cannot resolve onto the output root or its parent.
+    private static final Pattern BUNDLE_NAME_PATTERN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
     private final PathfinderDashboardAssetWriter assetWriter = new PathfinderDashboardAssetWriter();
 
@@ -92,8 +97,36 @@ public final class DashboardBundlePublisher {
         Path reportPath = bundleDir.resolve("report.json");
         writeJson(reportPath, report);
 
+        // A republished bundle rewrites report.json wholesale but heatmap
+        // files from a previous, longer run stay on disk — prune whatever
+        // the new report does not reference so orphans cannot accumulate.
+        pruneUnreferencedHeatmaps(heatmapDir, runs);
+
         updateBundleIndex(outputRoot, bundleName, report);
         return reportPath;
+    }
+
+    /** Delete {@code heatmaps/N.json} files no run in {@code runs} references. */
+    private static void pruneUnreferencedHeatmaps(Path heatmapDir,
+            List<PathfinderDashboardModels.RunRecord> runs) throws IOException {
+        if (!Files.isDirectory(heatmapDir)) {
+            return;
+        }
+        Set<String> live = new HashSet<>();
+        if (runs != null) {
+            for (PathfinderDashboardModels.RunRecord run : runs) {
+                if (run.heatmapFile != null) {
+                    live.add(Paths.get(run.heatmapFile).getFileName().toString());
+                }
+            }
+        }
+        try (Stream<Path> files = Files.list(heatmapDir)) {
+            for (Path file : files.collect(Collectors.toList())) {
+                if (!live.contains(file.getFileName().toString())) {
+                    Files.delete(file);
+                }
+            }
+        }
     }
 
     private static String requireBundleName(String bundleName) {

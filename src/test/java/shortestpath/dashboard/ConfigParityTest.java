@@ -1,5 +1,6 @@
 package shortestpath.dashboard;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -16,6 +17,7 @@ import org.junit.Test;
 import shortestpath.ShortestPathConfig;
 import shortestpath.TestShortestPathConfig;
 import shortestpath.profiles.PluginSettings;
+import shortestpath.settings.Settings;
 
 /**
  * Config-surface parity lint between {@link ShortestPathConfig} and the dashboard
@@ -76,6 +78,7 @@ public class ConfigParityTest {
         NO_TWIN_ALLOWLIST.put("highlightSpellbookSpells", "overlay highlight; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("pathStyle", "render style; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showBankPickupInfo", "info display; never read during pathfinding");
+        NO_TWIN_ALLOWLIST.put("showSidebarPanel", "toolbar-visibility toggle; plugin-side, never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTeleportPulse", "render toggle; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTileCounter", "info display; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTransportInfo", "info display; never read during pathfinding");
@@ -92,10 +95,41 @@ public class ConfigParityTest {
         NO_TWIN_ALLOWLIST.put("postTransports", "plugin-message broadcast toggle; never read during pathfinding");
         // Derived sets — their interface defaults delegate to the twinned
         // booleans (useTeleportationPortalsPoh / usePohMountedItems), so the
-        // full-on/full-off surface is already stub-able; partial sets are
-        // inexpressible in the config_overrides grammar.
-        NO_TWIN_ALLOWLIST.put("pohNexusPortals", "interface default derives the set from twinned useTeleportationPortalsPoh; partial sets inexpressible in config_overrides");
-        NO_TWIN_ALLOWLIST.put("pohMountedItems", "interface default derives the set from twinned usePohMountedItems; partial sets inexpressible in config_overrides");
+        // full-on/full-off surface scenarios actually need is already
+        // stub-able through the twinned boolean; a partial set override has
+        // no harness consumer worth a dedicated twin setter.
+        NO_TWIN_ALLOWLIST.put("pohNexusPortals", "interface default derives the set from twinned useTeleportationPortalsPoh; a partial set override has no harness consumer");
+        NO_TWIN_ALLOWLIST.put("pohMountedItems", "interface default derives the set from twinned usePohMountedItems; a partial set override has no harness consumer");
+        NO_TWIN_ALLOWLIST.put("balloonLogBasketRoutes", "interface default derives the set from twinned unlockBalloonLogBasket; a partial set override has no harness consumer");
+    }
+
+    /**
+     * Twinned methods whose wire payload is deliberately inert through
+     * {@link Settings#effective()} — the {@code ConfigKey} registry declares
+     * these keys' coercion NONE, so a payload value never reaches the getter.
+     * Map value = one-line justification naming where the value actually
+     * lands. Untwinned keys are covered by {@link #NO_TWIN_ALLOWLIST} instead.
+     */
+    private static final Map<String, String> WIRE_INERT_ALLOWLIST = new TreeMap<>();
+
+    static {
+        // Payload-inert (coercion NONE): the backend is a structural choice,
+        // not an override surface.
+        WIRE_INERT_ALLOWLIST.put("pathfinderBackend",
+            "pathfinderAlgorithm payloads are inert (coercion NONE) — backend choice is structural");
+        // Serialised write-path state: persisted through the setBuilt*/blocked
+        // write methods, never payload-overridable (coercion NONE).
+        WIRE_INERT_ALLOWLIST.put("builtTeleportationBoxes",
+            "write-path key (setBuiltTeleportationBoxes); payload-inert through effective()");
+        WIRE_INERT_ALLOWLIST.put("builtTeleportationPortalsPoh",
+            "write-path key (setBuiltTeleportationPortalsPoh); payload-inert through effective()");
+        WIRE_INERT_ALLOWLIST.put("blockedTeleportItems",
+            "write-path key (persisted state); payload-inert through effective()");
+        // The payload pairs with the costQuetzals() base at the driven
+        // whistle read, so the effective getter is inert; parity is asserted
+        // through coerceInt in the test body instead.
+        WIRE_INERT_ALLOWLIST.put("costQuetzalWhistle",
+            "payload pairs with the costQuetzals() base at the driven whistle read; asserted via coerceInt");
     }
 
     /**
@@ -219,5 +253,107 @@ public class ConfigParityTest {
         assertTrue("Config defaults divergent between the dashboard twin and"
             + " TestShortestPathConfig (declare deliberate differences in ALLOWLIST): "
             + divergent, divergent.isEmpty());
+    }
+
+    /**
+     * Wire-vs-twin parity: for every twinned config item whose payload is
+     * live, a {@link Settings#applyOverrides} payload keyed by
+     * {@code @ConfigItem.keyName} must move {@code effective()} to the same
+     * value the twin's {@code setXxx} setter produces — the surviving
+     * unification contract between the plugin-message override seam and the
+     * scenario-harness seam.
+     */
+    @Test
+    public void wireOverridesMatchTwinSetters() throws Exception {
+        List<String> failures = new ArrayList<>();
+        for (Method m : configItems()) {
+            if (NO_TWIN_ALLOWLIST.containsKey(m.getName())
+                || WIRE_INERT_ALLOWLIST.containsKey(m.getName())) {
+                continue;
+            }
+            Object wireBase = m.invoke(new TestShortestPathConfig());
+            PluginSettings twin = new PluginSettings();
+            Object twinBase = m.invoke(twin);
+            Object expected = sampleValue(m, wireBase, twinBase);
+            if (expected == null) {
+                failures.add(m.getName() + ": no generic wire sample for return type "
+                    + m.getReturnType().getSimpleName());
+                continue;
+            }
+            Settings wire = Settings.wrap(new TestShortestPathConfig());
+            wire.applyOverrides(Map.of(keyName(m), wireForm(expected)));
+            Object wireValue = m.invoke(wire.effective());
+            Method setter;
+            try {
+                setter = PluginSettings.class.getDeclaredMethod(setterName(m.getName()),
+                    m.getReturnType());
+            } catch (NoSuchMethodException e) {
+                failures.add(m.getName() + ": twin setter " + setterName(m.getName())
+                    + "(" + m.getReturnType().getSimpleName() + ") missing");
+                continue;
+            }
+            setter.invoke(twin, expected);
+            Object twinValue = m.invoke(twin);
+            if (!Objects.equals(wireValue, expected) || !Objects.equals(twinValue, expected)) {
+                failures.add(m.getName() + " (keyName=" + keyName(m) + "): wire="
+                    + wireValue + ", twin=" + twinValue + ", expected=" + expected);
+            }
+        }
+        // costQuetzalWhistle's payload pairs with the costQuetzals() base at
+        // the driven TransportType read for the whistle, so its own effective
+        // getter is inert; parity for that key goes through the keyed
+        // coerceInt read the production call site uses.
+        Settings whistleWire = Settings.wrap(new TestShortestPathConfig());
+        whistleWire.applyOverrides(Map.of("costQuetzalWhistle", 7));
+        PluginSettings whistleTwin = new PluginSettings();
+        whistleTwin.setCostQuetzalWhistle(7);
+        assertEquals("costQuetzalWhistle wire/twin divergence",
+            whistleTwin.costQuetzalWhistle(),
+            whistleWire.coerceInt("costQuetzalWhistle", whistleWire.effective().costQuetzals()));
+        assertTrue("Wire-override vs twin-setter divergence (justify in"
+            + " WIRE_INERT_ALLOWLIST or fix the seam): " + failures, failures.isEmpty());
+    }
+
+    /**
+     * A non-default sample of the getter's return type equal to neither
+     * side's base — a sample matching a base makes that side's write a
+     * no-op and its half of the parity check vacuous. {@code null} when
+     * no distinguishing sample exists (the caller records a failure).
+     */
+    private static Object sampleValue(Method m, Object wireBase, Object twinBase) {
+        Class<?> type = m.getReturnType();
+        if (type == boolean.class) {
+            boolean flipped = !(Boolean) wireBase;
+            return flipped == (Boolean) twinBase ? null : flipped;
+        }
+        if (type == int.class) {
+            for (int candidate : new int[]{7, 13, 3}) {
+                if (!Integer.valueOf(candidate).equals(wireBase)
+                        && !Integer.valueOf(candidate).equals(twinBase)) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+        if (type.isEnum()) {
+            for (Object constant : type.getEnumConstants()) {
+                if (!constant.equals(wireBase) && !constant.equals(twinBase)) {
+                    return constant;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The payload shape {@link Settings#applyOverrides} coerces for a typed
+     * sample: exact-type for booleans/ints/colours, the {@code type} string
+     * ({@code toString}) for the string-parsed enum coercions.
+     */
+    private static Object wireForm(Object sample) {
+        if (sample instanceof Enum) {
+            return sample.toString();
+        }
+        return sample;
     }
 }

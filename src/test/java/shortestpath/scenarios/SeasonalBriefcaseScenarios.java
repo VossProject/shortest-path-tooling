@@ -55,7 +55,8 @@ final class SeasonalBriefcaseScenarios {
             .from(1735, 3093, 0).to(1610, 3680, 2)
             .profile(SEASONAL)
             .account(leagueAreas(LeagueRegion.ASGARNIA, LeagueRegion.KOUREND))
-            .account(a -> a.inventory(ItemID.LEAGUE_BANK_HEIST_TELEPORT, 1));
+            .account(a -> a.inventory(ItemID.LEAGUE_BANK_HEIST_TELEPORT, 1))
+            .expectUnreachable();
 
         suite.scenario("Civitas → Prifddinas (Tirannwn pick)", "briefcase")
             .from(1735, 3093, 0).to(3255, 6104, 0)

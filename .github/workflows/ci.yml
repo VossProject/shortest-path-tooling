@@ -53,6 +53,30 @@ jobs:
           --tests 'shortestpath.dashboard.ConfigParityTest'
         shell: bash
 
+
+      - name: Dependency boundary lint
+        # All three boundary lints live in the plugin repo's own test
+        # tree, so they ride the submodule suite and are enforceable for
+        # contributors working there directly. CI never runs that whole
+        # suite, so they get their own named --tests filters; Gradle
+        # fails a filter that matches no class, so the step cannot pass
+        # vacuously.
+        run: |
+          ./gradlew -p shortest-path test --stacktrace \
+            --tests 'shortestpath.PluginDependencyRuleTest' \
+            --tests 'shortestpath.requirement.RequirementPackageBoundaryTest' \
+            --tests 'shortestpath.pathfinder.astar.AStarPackageDependencyTest'
+        shell: bash
+
+      - name: Submodule checkstyle
+        # Upstream CI runs `check` (checkstyleMain + checkstyleTest) on the
+        # plugin; the tooling gate compiles but never lints the submodule,
+        # so violations only surface on the upstream PR. Pin it here.
+        run: >-
+          ./gradlew -p shortest-path checkstyleMain checkstyleTest
+          --stacktrace
+        shell: bash
+
       - name: Run a light benchmark through the benchmark task
         # Runs `benchmark` as collisionlab/osrs-benchmarks does (three scenarios, legacy and A*)
         # and checks the output as it reads it, so we know the task still works for it.

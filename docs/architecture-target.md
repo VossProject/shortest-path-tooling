@@ -43,8 +43,8 @@ cake. Every extraction copies the same rules:
 - **Self-subscribing services** — each service registering directly on the
   RuneLite event bus reintroduces implicit tick ordering; today's handler
   sequence (snapshot capture before invalidation, scheduler calls last) is
-  deliberate and would become unreviewable if it were smeared across
-  subscriber registration order.
+  deliberate; smearing it across subscriber registration order would lose
+  it.
 - **Internal domain-event bus** — an invented publish/subscribe layer adds
   infrastructure nothing else needs and confuses the thread story (which
   thread publishes, which consumes). The client already has an event bus;
@@ -55,80 +55,63 @@ cake. Every extraction copies the same rules:
 Declared rule, in the same register the A* backend's `package-info`
 already uses:
 
-> Leaf packages — `transport/`, `pathfinder/`, `requirement/`, `leagues/`,
-> `overlay/` — must not depend on `ShortestPathPlugin`. Cross-cutting
-> configuration and world-geometry access goes through owned services (the
-> settings service, the POH service) or leaf utilities. All new coupling
-> arrives through an injected seam.
+> Leaf packages — `api/`, `items/`, `leagues/`, `overlay/`, `pathfinder/`,
+> `poh/`, `presentation/`, `requirement/`, `sailing/`, `scheduler/`,
+> `settings/`, `spirittree/`, `transport/`, `widgets/` — must not depend on
+> `ShortestPathPlugin`. Cross-cutting configuration and world-geometry
+> access goes through owned services (the settings service, the POH
+> service) or leaf utilities. All new coupling arrives through an injected
+> seam.
 
-The rule covers the leaf packages only. Top-level files sit outside it:
-`Destination`'s two `ShortestPathPlugin.class.getResourceAsStream` anchors
-and the `CONFIG_GROUP` reads on `ShortestPathConfig`,
-`PortalNexusKeybinds` and `SpiritTreePatchState` are recorded in the
-survey's coupling notes and owned by the loader and settings extractions.
+The rule covers the leaf packages only. Top-level files sit outside it —
+the `CONFIG_GROUP` read on `ShortestPathConfig` and the shell's own
+references are shell-internal surface, not leaf coupling.
 
-Today's violations are frozen in an allowlist — every leaf-package
-`ShortestPathPlugin.` reference site with the migration that owns its
-removal. Extraction work removes entries; entries are never added:
+On the integrated branch the frozen allowlist is **empty**. Every
+pre-existing violation it once recorded retired with its owning
+extraction: the `ShortestPathPlugin.class` resource anchors died when the
+loader self-anchored, the `override()` reads folded into the settings
+service, and the `isInsidePoh`/`POH_*` statics moved into the POH
+service. One adjudicated residual remains — `overlay/DebugOverlayPanel`'s
+constructor takes `ShortestPathPlugin plugin` only to forward
+`super(plugin)`, which RuneLite's `OverlayPanel` base class requires.
+Widening the parameter to `net.runelite.client.plugins.Plugin` is a
+post-merge cleanup: the file is owned by mid-stack branches, so landing
+the two-line fix now would re-diff those pull requests.
 
-| Site | What it is | Owning migration |
-|------|------------|------------------|
-| `transport/TransportLoader.java:33` | `ShortestPathPlugin.class` resource anchor — transport TSV read | TSV data loading — the loader anchors on its own class |
-| `pathfinder/SplitFlagMap.java:92` | `ShortestPathPlugin.class` resource anchor — collision-map read | TSV data loading — the loader anchors on its own class |
-| `leagues/LeagueRegionChecker.java:105` | `ShortestPathPlugin.class` resource anchor — league-region read | TSV data loading — the loader anchors on its own class |
-| `pathfinder/PathfinderConfig.java:31` | `import static` of `POH_LANDING_X` | POH service |
-| `pathfinder/PathfinderConfig.java:32` | `import static` of `POH_LANDING_Y` | POH service |
-| `pathfinder/TransportAvailability.java:9` | `import static` of `POH_LANDING_X` | POH service |
-| `pathfinder/TransportAvailability.java:10` | `import static` of `POH_LANDING_Y` | POH service |
-| `transport/TransportTypeConfig.java:66` | `override()` read of `useTeleportationItems` | Settings service |
-| `transport/TransportTypeConfig.java:109` | `override()` read of a per-type config value | Settings service |
-| `transport/TransportTypeConfig.java:125` | `override()` read of a per-type config value | Settings service |
-| `pathfinder/PathfinderConfig.java:324` | `override()` read of `unreachableTargetDistanceThreshold` | Settings service |
-| `pathfinder/PathfinderConfig.java:327` | `override()` read of `aStarHeuristicWeight` | Settings service |
-| `pathfinder/PathfinderConfig.java:328` | `override()` read of `avoidWilderness` | Settings service |
-| `pathfinder/PathfinderConfig.java:329` | `override()` read of `usePoh` | Settings service |
-| `pathfinder/PathfinderConfig.java:335` | `override()` read of `usePohFairyRing` | Settings service |
-| `pathfinder/PathfinderConfig.java:336` | `override()` read of `usePohSpiritTree` | Settings service |
-| `pathfinder/PathfinderConfig.java:337` | `override()` read of `usePohObelisk` | Settings service |
-| `pathfinder/PathfinderConfig.java:341` | `override()` read of `pohJewelleryBoxTier` | Settings service |
-| `pathfinder/PathfinderConfig.java:344` | `override()` read of `currencyThreshold` | Settings service |
-| `pathfinder/PathfinderConfig.java:349` | `override()` read of `includeBankPath` | Settings service |
-| `pathfinder/PathfinderConfig.java:352` | `override()` read of `respawnPrifddinas` | Settings service |
-| `pathfinder/PathfinderConfig.java:356` | `override()` read of `unlockCanoeAxe` | Settings service |
-| `pathfinder/PathfinderConfig.java:360` | `override()` read of `unlockXericsHonour` | Settings service |
-| `pathfinder/PathfinderConfig.java:364` | `override()` read of `unlockDragontoothPassage` | Settings service |
-| `pathfinder/PathfinderConfig.java:371` | `override()` read of `costConsumableTeleportationItems` | Settings service |
-| `pathfinder/PathfinderConfig.java:372` | `override()` read of `costBankVisit` | Settings service |
-| `pathfinder/PathfinderConfig.java:660` | `isInsidePoh` redirect filter | POH service |
-| `pathfinder/TransportAvailability.java:100` | `isInsidePoh` origin check | POH service |
-| `requirement/Requirements.java:194` | `isInsidePoh` calls inside the `pohDisabled` gate (two on one line) | POH service |
-| `requirement/Requirements.java:262` | `isInsidePoh` calls inside the `pohVariant` gate (two on one line) | POH service |
-| `overlay/PathTileOverlay.java:251` | `isInsidePoh` marker filter | POH service |
-| `overlay/PathTileOverlay.java:286` | `isInsidePoh` tracer filter | POH service |
-| `overlay/PathTileOverlay.java:321` | `isInsidePoh` marker filter | POH service |
-| `overlay/PathTileOverlay.java:365` | `isInsidePoh` marker filter | POH service |
-| `overlay/PathTileOverlay.java:763` | `isInsidePoh` transport-tile check | POH service |
-| `overlay/PathTileOverlay.java:764` | `isInsidePoh` player-tile check | POH service |
+Enforcement is `PluginDependencyRuleTest`, a source-scan lint that
+lives in the plugin repo's own test tree — `./gradlew test --tests
+'*DependencyRule*'` inside `shortest-path/` — alongside the
+requirement and A* package-boundary lints, so the seams are enforced
+for anyone working in the plugin repo directly, not only through the
+composite harness.
+Four scans ratchet the boundary:
 
-The exemplar is honest on the same terms: `Requirements`' four
-`isInsidePoh` calls sit on the two allowlisted lines above and migrate
-with the POH extraction like every other site.
+- the `ShortestPathPlugin.` dotted-token census against the (now empty)
+  allowlist — any new leaf-package reference fails the build;
+- a comment-aware leaf→plugin *type-reference* scan (imports, parameter
+  types, `plugin.` reads) whose named-exception table holds the
+  `DebugOverlayPanel` constructor seam — the table fails stale if the
+  seam disappears without the entries leaving, so it cannot drift;
+- a public-mutable-field scan over every leaf package — the
+  `pathfinderConfig.bank` era of public shell state is outlawed;
+- a leaf-package census — a new unclassified `shortestpath/*` directory
+  fails until it is enrolled.
 
-Enforcement is `PluginDependencyRuleTest`, a source-scan lint over the
-submodule sources: the observed set must equal the allowlist exactly, so a
-new reference fails the build and a stale entry fails it too — the entry
-is removed in the same change that removed the reference. Run it with
-`./gradlew test --tests '*DependencyRule*'` — the milestone's phase gate
-and a checklist item on every extraction pull request. The wrapper `test`
-task runs in neither CI nor the maintenance-verify chain today; wiring it
-in is a separate scope decision.
+A second frozen census records leaf-to-leaf import edges with a written
+justification each — the designed seams such as `overlay → scheduler`
+diagnostics reads and the documented `items ↔ pathfinder` projection.
+New sideways coupling fails the build, and a stale edge fails it the same
+way. The lint is advisory: the wrapper `test` task runs in neither CI nor
+the maintenance-verify chain, and wiring it in is a separate scope
+decision.
 
 ## Design resolutions
 
 ### The gate-verdict contract stays test-only
 
 `Requirements.check(...)` stays package-private and the `RejectionReason`
-enum — nineteen constants — remains internal review instrumentation. Any
+enum — nineteen constants — remains internal instrumentation. Any
 consumer outside tests is an API widening: a real change dressed as a
 refactor, which would break the zero-delta attestation every extraction
 relies on. The cheapest legitimate future consumer is per-gate rejection
@@ -153,29 +136,32 @@ arrays are storage encoding, not readability problems. There is no
 generalized flags container — league, free-to-play and sailing status are
 per-refresh account facts (snapshot inputs), not mid-search state
 transitions; the bank-visit edge is the only confirmed second dimension.
-The change lands as a standalone mechanical pull request placed before the
-API/presentation and scheduler work — it crosses the engine, the
-middleware, the shell and the harness twins, so it cannot nest inside a
-single subsystem extraction without re-diffing the same signatures twice.
+The change landed as a standalone mechanical pull request (upstream #732)
+ahead of the API/presentation and scheduler work — it crossed the engine,
+the middleware, the shell and the harness twins, so it could not nest
+inside a single subsystem extraction without re-diffing the same
+signatures twice.
 
 ### Coupling direction is declared and ratcheted
 
-Resolved by the dependency rule above: the rule is declared, today's
-violations are frozen in the allowlist, and the lint keeps the set
-non-growing. Migration ownership rides the extractions named in the table —
-the `override()` reads fold into the settings service, the
+Resolved by the dependency rule above: the rule is declared, the formerly
+frozen violations emptied out as their owning extractions landed — the
+`override()` reads folded into the settings service, the
 `isInsidePoh`/`POH_*` references into the POH service, and the resource
-anchors disappear when the loader lands self-anchored.
+anchors disappeared when the loader landed self-anchored — and the lint
+keeps the set non-growing.
 
 ## Diagram
 
-Current state as surveyed, then the target state. Node names match the
-survey's cluster index. In the current block, dashed arrows are the
-backward coupling the dependency rule outlaws — every dashed edge is a
-site in the frozen allowlist. In the target block, filled nodes are the
-services and value types the refactor introduces; grey nodes already exist
-and keep their shape — only their seams change. Edge labels that cross
-threads carry the producer-thread to consumer-thread pair.
+Two graphs: the **integrated state** — the extraction stack accumulated on
+the `1.22.0` integration branch, wired in the injected-service shape — and
+the **target state** it converges on. Node labels name the packages as
+they exist on the branch. Upstream's own tip still carries the
+pre-extraction shape the survey's census describes; the backward
+`plugin.*`/`ShortestPathPlugin.` reads it relied on are gone from the
+stack — the one dashed edge that remains is the adjudicated constructor
+seam below. Edge labels that cross threads carry the producer-thread to
+consumer-thread pair.
 
 ```mermaid
 flowchart TD
@@ -185,74 +171,107 @@ flowchart TD
         ConfigMgr["ConfigManager"]
     end
 
-    subgraph Shell["Plugin shell - two god objects"]
-        Plugin["ShortestPathPlugin - lifecycle ordering, item and varbit handlers, spirit-tree scrape, POH remap and isInsidePoh, scheduler internals, refresh triggers, plugin-message API, menu verbs, transport display, widget geometry, overlay registration"]
-        PFC["PathfinderConfig - cached config fields, override reads, item collection and banks, availableSpiritTrees, refresh orchestration, destinations and filtering, availability views, requirement wiring, A* account prep"]
+    subgraph Shell["Plugin shell residue - root package"]
+        Plugin["ShortestPathPlugin - lifecycle ordering, one-line event forwarders, overlay and key-listener registration"]
+        Panel["config panel - ShortestPathPanel, RestrictionListPanel, TransportFamilyCard"]
+        CfgDecl["ShortestPathConfig - @ConfigItem declarations"]
     end
 
-    subgraph Req["Requirement middleware - landed"]
-        PSS["PlayerStateSource"]
-        RC["RequirementContext"]
-        RP["RoutingPolicy"]
-        Gates["Requirements gates and TransportEligibility"]
+    Util["leaf utilities - root-package helpers"]
+
+    subgraph Prod["Client-thread producers"]
+        Cfg["settings/ - Settings service, EffectiveConfig"]
+        PSS["requirement/ - PlayerStateSource, sole Client reader"]
+        Items["items/ - ItemStateService"]
+        Trees["spirittree/ - SpiritTreeService"]
+        POH["poh/ - PohService"]
+        Sail["sailing/ - SailingService"]
+        Geo["widgets/ - WidgetGeometry, GameWidgets"]
     end
 
-    subgraph Engine["Engine - already coherent"]
-        PF["Pathfinder search core"]
-        AStar["A* backend"]
+    subgraph Coord["Coordination - notification flows inward only"]
+        RCO["scheduler/ - RefreshCoordinator"]
+        Sched["scheduler/ - PathScheduler"]
+        Diag["scheduler/ - DebugState"]
     end
 
-    subgraph Data["Leaf packages - data"]
-        TSV["TSV data loading"]
-        Parser["Transport TSV parser"]
-        Leagues["Leagues"]
+    subgraph Engine["Engine - immutable per-refresh inputs"]
+        RC["requirement/ - RequirementContext snapshot"]
+        RP["requirement/ - RoutingPolicy settings view"]
+        Gates["requirement/ - Requirements gates and TransportEligibility"]
+        Skills["requirement/model/ - SkillLevels"]
+        TSV["transport/ - ResourceLoader"]
+        Parser["transport/parser/ - TSV grammar"]
+        Leagues["leagues/"]
+        PF["pathfinder/ - search core and PathfinderConfig"]
+        SailEng["pathfinder/sailing/ - sailing search"]
+        AStar["pathfinder/astar/ - A* backend"]
     end
 
-    subgraph Present["Leaf packages - presentation"]
-        PathOv["Path rendering overlays"]
-        HighOv["Highlight overlays"]
-        DbgOv["Debug overlay"]
+    subgraph Present["Presentation"]
+        API["api/ - PluginMessageHandler, PluginMessageTargets, MenuVerbs"]
+        TPres["presentation/ - PathAnnotator, BankPickupRequirements"]
+        PathOv["overlay/ - path rendering overlays"]
+        HighOv["overlay/ - highlight overlays"]
+        DbgOv["overlay/ - DebugOverlayPanel"]
     end
-
-    Panel["Config panel - writer"]
-    Util["Leaf utilities"]
 
     Events --> Plugin
     Plugin --> Client
     Plugin --> ConfigMgr
-    Panel --> ConfigMgr
-    Plugin --> PFC
-    PFC --> Gates
-    PSS -->|requirement-state reads| Client
-    PSS --> RC
+    Plugin -->|one-line event forwarders| Prod
+    Plugin -->|forwards client events| RCO
+    Plugin --> Util
+    Panel -->|read write listen| Cfg
+    Panel -->|owned items| Items
+    PSS -->|captures snapshot - client to worker| RC
+    Items -->|item pools| RC
+    Trees -->|tree set| RC
+    POH -->|region facts| RC
+    Sail -->|boat state| RC
+    Cfg -->|projects| RP
+    Cfg -->|config changed| RCO
+    Items -->|items changed| RCO
+    Trees -->|tree set changed| RCO
+    POH -->|POH facts changed| RCO
+    Sail -->|sailing changed| RCO
+    Trees -->|menu scrape| Geo
+    RCO -->|sole caller - client to worker| Sched
+    Sched -->|submit search| PF
+    Sched -->|submit search| SailEng
+    Sched -->|submit search| AStar
+    Sched -->|records outcomes| Diag
     RC --> Gates
     RP --> Gates
+    Skills --> Gates
     Parser --> TSV
-    TSV --> PFC
+    TSV -->|destinations and transports| Gates
     Leagues --> Gates
-    PFC -->|availability views| PF
-    PFC -->|account snapshot| AStar
-    Plugin --> PathOv
-    Plugin --> HighOv
-    Plugin --> DbgOv
-    Plugin --> Util
-    Gates -.->|isInsidePoh x4| Plugin
-    PFC -.->|override x16, POH statics, isInsidePoh| Plugin
-    TSV -.->|override x3 and class anchor| Plugin
-    PF -.->|class anchor, POH statics, isInsidePoh| Plugin
-    Leagues -.->|class anchor| Plugin
-    PathOv -.->|about 90 plugin.* reads, isInsidePoh x6| Plugin
-    DbgOv -.->|getDebugState| Plugin
+    Gates -->|availability views| PF
+    Gates -->|availability views| AStar
+    API -->|queries restarts and menu verbs| Sched
+    API -->|config payload| Cfg
+    TPres -->|display strings| API
+    PathOv -->|annotated display| TPres
+    HighOv -->|pickup facts| Items
+    Sched -->|publishes ActiveSearch and PathRenderState - worker to render| PathOv
+    PathOv -->|settings view| Cfg
+    PathOv -->|geometry| Geo
+    PathOv -->|POH facts| POH
+    DbgOv -->|reads snapshot| Diag
+    DbgOv -.->|ctor seam - OverlayPanel base requires the plugin instance| Plugin
 
     classDef shell fill:#f8e3e3,stroke:#a33,color:#000
-    class Plugin,PFC shell
+    class Plugin shell
 ```
 
-In target shape every cluster above has a lane: producers watch game state
-on the client thread and publish immutable facts; the coordinator hears
-"what changed" and is the scheduler's only caller; the engine consumes
-snapshots on the worker thread; presentation reads published handles on
-the render thread.
+The target state below is what the integrated graph already realizes:
+producers watch game state on the client thread and publish immutable
+facts; the coordinator hears "what changed" and is the scheduler's only
+caller; the engine consumes snapshots on the worker thread; presentation
+reads published handles on the render thread. The remaining distance is
+the `DebugOverlayPanel` constructor seam and the registered upstream
+follow-ups — not missing structure.
 
 ```mermaid
 flowchart TD
@@ -261,42 +280,43 @@ flowchart TD
     end
 
     subgraph Prod["Client-thread producers"]
-        Cfg["Config access and overrides - settings service"]
-        PSS["PlayerStateSource - sole Client reader"]
-        Items["Player item state"]
-        Trees["Spirit trees"]
-        POH["POH service"]
-        Geo["Widget and UI geometry"]
+        Cfg["settings/ - config access and overrides service"]
+        PSS["requirement/ - PlayerStateSource, sole Client reader"]
+        Items["items/ - player item state"]
+        Trees["spirittree/ - spirit trees"]
+        POH["poh/ - POH service"]
+        Sail["sailing/ - sailing service"]
+        Geo["widgets/ - widget and UI geometry"]
     end
 
     subgraph Coord["Coordination - notification flows inward only"]
-        RCO["RefreshCoordinator"]
-        Sched["PathScheduler"]
-        Diag["Diagnostics"]
+        RCO["scheduler/ - RefreshCoordinator"]
+        Sched["scheduler/ - PathScheduler"]
+        Diag["scheduler/ - diagnostics (DebugState)"]
     end
 
     subgraph EngineT["Engine - immutable per-refresh inputs"]
-        RC["RequirementContext - immutable snapshot"]
-        RP["RoutingPolicy - settings view"]
-        Gates["Requirements gates and TransportEligibility"]
-        Skills["Player skill levels"]
-        TSV["TSV data loading"]
-        Leagues["Leagues"]
-        PF["Pathfinder search core"]
-        AStar["A* backend"]
+        RC["requirement/ - RequirementContext, immutable snapshot"]
+        RP["requirement/ - RoutingPolicy, settings view"]
+        Gates["requirement/ - Requirements gates and TransportEligibility"]
+        Skills["requirement/model/ - player skill levels"]
+        TSV["transport/ - TSV data loading"]
+        Leagues["leagues/"]
+        PF["pathfinder/ - search core"]
+        SailEng["pathfinder/sailing/ - sailing engine"]
+        AStar["pathfinder/astar/ - A* backend"]
     end
 
     subgraph PresentT["Presentation"]
-        API["Plugin-message API"]
-        Menu["Menu and target-setting verbs"]
-        TPres["Transport presentation"]
-        Panel["Config panel - writer"]
-        PathOv["Path rendering overlays"]
-        HighOv["Highlight overlays"]
-        DbgOv["Debug overlay"]
+        API["api/ - plugin-message API and menu verbs"]
+        TPres["presentation/ - transport presentation"]
+        Panel["config panel - writer (root package)"]
+        PathOv["overlay/ - path rendering overlays"]
+        HighOv["overlay/ - highlight overlays"]
+        DbgOv["overlay/ - debug overlay"]
     end
 
-    Util["Leaf utilities"]
+    Util["leaf utilities - root package"]
 
     ShellRes -->|one-line event forwarders| Prod
     ShellRes -->|one-line event forwarders| RCO
@@ -304,14 +324,17 @@ flowchart TD
     Items -->|item pools| RC
     Trees -->|tree set| RC
     POH -->|region facts| RC
+    Sail -->|boat state| RC
     Geo -->|widget reads| Trees
     Cfg -->|projects| RP
     Cfg -->|config changed| RCO
     Items -->|items changed| RCO
     Trees -->|tree set changed| RCO
     POH -->|POH facts changed| RCO
+    Sail -->|sailing changed| RCO
     RCO -->|sole caller - client to worker| Sched
     Sched -->|submit search| PF
+    Sched -->|submit search| SailEng
     Sched -->|submit search| AStar
     Sched -->|records outcomes| Diag
     RC --> Gates
@@ -321,8 +344,7 @@ flowchart TD
     Leagues --> Gates
     Gates -->|availability views| PF
     Gates -->|availability views| AStar
-    Menu -->|verbs| Sched
-    API -->|queries and restarts| Sched
+    API -->|verbs queries and restarts| Sched
     API -->|config payload| Cfg
     Panel -->|read write listen| Cfg
     Panel -->|owned items| Items
@@ -337,9 +359,45 @@ flowchart TD
 
     classDef extracted fill:#dceeff,stroke:#2a62b0,color:#000
     classDef existing fill:#f2f2f2,stroke:#777,color:#000
-    class Cfg,Items,POH,Geo,RCO,Sched,Diag,API,Menu,TPres,Skills extracted
-    class PSS,RC,RP,Gates,TSV,Leagues,PF,AStar,PathOv,HighOv,DbgOv,Panel,Util,ShellRes,Trees existing
+    class Cfg,Items,POH,Sail,Geo,RCO,Sched,Diag,API,TPres,Skills extracted
+    class PSS,RC,RP,Gates,TSV,Leagues,PF,SailEng,AStar,PathOv,HighOv,DbgOv,Panel,Util,ShellRes,Trees existing
 ```
+
+## Extraction status
+
+Each subsystem's disposition, kept in three distinct states: **stack** —
+carried by an open upstream draft pull request; **on `1.22.0`** —
+accumulated on the integration branch; **merged upstream** — landed in
+the upstream repository itself. Nothing has merged upstream: every stack
+pull request is open — nearly all are drafts — so that column reads
+pending throughout.
+
+| Subsystem | Home on the integrated tip | Stack PR | On `1.22.0` | Merged upstream |
+|-----------|----------------------------|----------|-------------|-----------------|
+| Requirement middleware | `requirement/` + `requirement/model/` | #707, #708, #709, #710 | yes | pending |
+| Banked/unbanked domain type | `pathfinder/BankVisitState` | #732 | yes | pending |
+| Config access and settings | `settings/` | #716 | yes | pending |
+| Player item state | `items/` | #721 | yes | pending |
+| Spirit trees | `spirittree/` | #722 | yes | pending |
+| POH | `poh/` | #726 | yes | pending |
+| Path scheduler + diagnostics | `scheduler/` | #733 | yes | pending |
+| Refresh and invalidation coordination | `scheduler/RefreshCoordinator` | #734 | yes | pending |
+| Sailing service | `sailing/` | #747 | yes | pending |
+| Widget and UI geometry | `widgets/` | #775 | yes | pending |
+| Plugin-message API + menu verbs | `api/` | #776 | yes | pending |
+| Transport presentation | `presentation/` | #776 | yes | pending |
+| Path rendering overlays | `overlay/` | #777 | yes | pending |
+| Highlight overlays | `overlay/` | #778 | yes | pending |
+| Player skill levels | `requirement/model/SkillLevels` | #792 | yes | pending |
+| TSV data loading | `transport/ResourceLoader` | #793 | yes | pending |
+| Widget scraping | `widgets/GameWidgets` | #794 | yes | pending |
+| Config panel | `ShortestPathPanel`, `RestrictionListPanel`, `TransportFamilyCard` (root) | #711 | yes | pending |
+| Pathfinder search core | `pathfinder/` | — | yes | deferred — coherent unit, existing upstream code |
+| A* backend | `pathfinder/astar/` | — | yes | deferred — coherent unit, existing upstream code |
+| Leagues | `leagues/` | — | yes | deferred — coherent unit, existing upstream code |
+| Transport TSV parser | `transport/parser/` | — | yes | deferred — coherent unit, wrapped by the loader |
+| Leaf utilities | root-package helpers | — | yes | leaf listing — no extraction needed |
+| Plugin shell | `ShortestPathPlugin` (root) | — | yes | residual — lifecycle and forwarding only |
 
 A combined both-states overview is deliberately omitted: compressing both
 graphs into one stays legible only under roughly twenty nodes, and the

@@ -39,6 +39,13 @@ public final class PathfinderDashboardModels {
         public int totalRuns;
         public int successfulRuns;
         public int failedRuns;
+        /**
+         * The scenario count the sweep scheduled. {@code null} when the
+         * writer did not record it; when present, a report whose
+         * {@code runs} list is shorter lost coverage and must not scan
+         * as a complete pass.
+         */
+        public Integer expectedRuns;
         public long elapsedMillis;
         /**
          * Latency aggregates over {@code run.stats.elapsedNanos} — median,

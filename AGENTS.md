@@ -85,9 +85,12 @@ Profiling is expensive — check the `[profiled|unprofiled]` tag on the
   `-PdashboardProfile=true` — don't rely on the auto default.
 
 `verify` streams tier progress (per-dataset header + tqdm bar driven by the
-`[i/N]` scenario heartbeats in `DashboardTest`). Expect ~15–30 min: the
-dashboard tier launches one cold JVM per suite (8+ suites, the
-largest ~860 scenarios, plus the canonical tiers). `--skip-compile/--skip-lint/--skip-dashboard/
+`[i/N]` scenario heartbeats in `DashboardTest`). Expect ~15–30 min for the
+full gate: the dashboard tier runs as one consolidated
+`dashboard -PdashboardSuite=all` invocation in a single JVM (all ~10 suites,
+the largest ~860 scenarios, plus the canonical tiers). `verify --fast`
+narrows the dashboard tier to the `canonical` suite's `smoke` tier, and
+`--skip-compile/--skip-lint/--skip-dashboard/
 --skip-diff` narrow the gate for fast iteration.
 
 `VarAccessProbeTest` scans cache clientscripts for var/operand access —
@@ -159,10 +162,6 @@ belong to the submodule's branch/PR flow, not this repo.
 - Run submodule tests with `./gradlew -p shortest-path test`.
 
 ## Upstream PR workflow
-
-The upstream maintainer reviews at a deliberate pace and has flagged
-the submission pace as rushed — requirement-satisfaction logic is
-spread across several places, so subtle changes are expensive to review.
 
 - Changes to requirement satisfaction, eligibility, or
   `usable()`/`useTransport` semantics must include adversarial tests:
