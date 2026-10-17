@@ -892,6 +892,21 @@ def test_check_absent_csv_degrades_to_error_only(tmp_path, capsys):
     assert "WARN" not in out
 
 
+def test_check_undecodable_csv_degrades_to_error_only(tmp_path, capsys):
+    # A scenarios.csv holding non-UTF-8 bytes must degrade the same way —
+    # error-only classification, never a UnicodeDecodeError traceback.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["ghost row"]})
+    make_scenarios_csv(tmp_path, [scenario_row()])
+    (tmp_path / "scenarios.csv").write_bytes(
+        WORKING_CSV_HEADER.encode() + b"\nghost row\xff\xfe,routing-issue-1\n")
+    rc = run_check(tmp_path)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "ERROR ISSUE-1.md" in out
+    assert "WARN" not in out
+
+
 def test_check_scenario_csv_flag_overrides_default(tmp_path, capsys):
     # --scenario-csv points the WARN tier at a different CSV location.
     make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,

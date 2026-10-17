@@ -1002,7 +1002,8 @@ def working_dataset_names(csv_path: Path) -> set:
     """
     names = set()
     try:
-        for line in csv_path.read_text().splitlines():
+        for line in csv_path.read_text(encoding="utf-8",
+                                       errors="replace").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
