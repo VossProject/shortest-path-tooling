@@ -940,6 +940,22 @@ def test_check_warn_lines_precede_errors(tmp_path, capsys):
     assert warn_at < err_at
 
 
+def test_check_data_row_named_name_is_not_dropped(tmp_path, capsys):
+    # Header detection is positional: only the FIRST non-comment line
+    # may be the ``name,...`` header.  A data row whose scenario is
+    # literally named ``name`` later in the file is a real scenario and
+    # must join the WARN tier — not be silently excluded down to ERROR.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["name"]})
+    make_working_csv(tmp_path, ["name"])
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "'name'" in out
+    assert "(1 warning)" in out
+
+
 # --- triage.residual — the carry-over ledger entries --------------------
 
 def test_check_residual_must_be_list(tmp_path, capsys):
