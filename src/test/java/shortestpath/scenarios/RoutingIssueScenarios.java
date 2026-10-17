@@ -1435,7 +1435,7 @@ final class RoutingIssueScenarios {
             .from(2744, 10004, 0).to(3022, 10354, 0)
             .profile(UNIT_TEST);
 
-        suite.scenario("Avoid wilderness (#744) still routes to Abyss via Wilderness", "routing-issue-744")
+        suite.scenario("Avoid wilderness (#744) wilderness-gated Abyss stays reachable", "routing-issue-744")
             .from(3160, 3486, 0).to(3035, 4852, 0)
             .profile(UNIT_TEST)
             .settings(s -> s.setAvoidWilderness(true));
