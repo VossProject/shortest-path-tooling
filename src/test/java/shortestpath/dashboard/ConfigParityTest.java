@@ -78,6 +78,7 @@ public class ConfigParityTest {
         NO_TWIN_ALLOWLIST.put("highlightSpellbookSpells", "overlay highlight; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("pathStyle", "render style; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showBankPickupInfo", "info display; never read during pathfinding");
+        NO_TWIN_ALLOWLIST.put("showSidebarPanel", "toolbar-visibility toggle; plugin-side, never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTeleportPulse", "render toggle; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTileCounter", "info display; never read during pathfinding");
         NO_TWIN_ALLOWLIST.put("showTransportInfo", "info display; never read during pathfinding");
