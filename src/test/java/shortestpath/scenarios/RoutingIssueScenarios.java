@@ -1367,8 +1367,10 @@ final class RoutingIssueScenarios {
             .from(2795, 2945, 0).to(2399, 4673, 0)
             .profile(UNIT_TEST)
             .account(a -> a
+                .varplayer(VarPlayerID.LEGENDSQUEST, 50)
                 .inventory(ItemID.MACHETTE, 1)
-                .inventory(ItemID.RUNE_AXE, 1));
+                .inventory(ItemID.RUNE_AXE, 1))
+            .settings(s -> s.setBypassVarPlayerChecks(false));
 
         suite.scenario("Ruins of Camdozaal (#678) Ice Mountain entrance reaches ruins", "routing-issue-678")
             .from(2998, 3494, 0).to(2952, 5762, 0)
