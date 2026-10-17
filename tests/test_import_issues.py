@@ -819,7 +819,7 @@ def make_working_csv(tmp_path, names):
     ``make_scenarios_csv`` above, which writes the saved *index* JSON.
     """
     lines = [WORKING_CSV_HEADER, "# working replay dataset fixture"]
-    lines += [f"{name},routing-issue-1" + "," * 17 for name in names]
+    lines += [f"{name},routing-issue-1" + "," * 18 for name in names]
     path = tmp_path / "scenarios.csv"
     path.write_text("\n".join(lines) + "\n")
     return path
