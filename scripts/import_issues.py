@@ -1066,7 +1066,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     if errors:
         return 1
     if warnings:
-        print(f"check: clean ({len(warnings)} warnings)")
+        print(f"check: clean ({len(warnings)} warning{'s' if len(warnings) != 1 else ''})")
     else:
         print("check: clean")
     return 0

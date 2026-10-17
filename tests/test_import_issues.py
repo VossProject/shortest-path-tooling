@@ -838,7 +838,7 @@ def test_check_csv_only_name_warns_not_errors(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "WARN ISSUE-1.md" in out
     assert "ghost row" in out
-    assert "1 warnings" in out
+    assert "(1 warning)" in out
 
 
 def test_check_nowhere_name_stays_error(tmp_path, capsys):
