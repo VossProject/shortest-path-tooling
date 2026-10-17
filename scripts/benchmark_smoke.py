@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""Run a light benchmark through benchmarkCanonical and check its output the way
-shortest-path-benchmarks reads it.
+"""Run a light benchmark through the benchmark task and check its output the way
+collisionlab/osrs-benchmarks reads it.
 
-The benchmarks harness (shortest-path-benchmarks) calls this repository's
-benchmark adapter from projects/shortest-path/run.sh:
+osrs-benchmarks (src/osrs_benchmarks/tooling.py) runs
 
-    ./gradlew -PshortestPathDir=PLUGIN benchmarkCanonical --args="--manifest M --output OUT"
+    gradle -PshortestPathDir=PLUGIN benchmark --args="--manifest M --output OUT"
 
-with BENCHMARK_RUN_ID set, and validates the protocol-v1 envelope it writes
-(scripts/run-suite, scripts/lib/benchlib.py validate_observation,
-schemas/observation-v2.json). This script does the same for two cases on each
-backend, so CI notices when the adapter stops working for the harness.
+with BENCHMARK_RUN_ID set, on a format-2 manifest (scenarios by suite and name), and reads the
+fields checked here from the result. This script does the same for three scenarios on each
+backend, so CI notices when the task stops working for it.
 
-If you change the adapter's arguments, manifest format or output, update
-shortest-path-benchmarks to match (run.sh, benchlib.py, the schemas) and this
-script with it.
+If you change the task's arguments, manifest format or output, update osrs-benchmarks to match
+and this script with it.
 
 Usage: python3 scripts/benchmark_smoke.py   (writes build/benchmark-smoke/)
 """
@@ -27,20 +24,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# One reachable and one curated-unreachable case (gps-natural-0012's negativeProfiles is [early]).
-CASES = [("gps-natural-0012", "maxed", True), ("gps-natural-0012", "early", False)]
-CLOCK = 100_000_000
-PROJECTS = {
-    "shortest-path": {"algorithm": "legacy", "diagnostic": False},
-    "shortest-path-astar": {"algorithm": "astar", "diagnostic": True, "astar_session": "target"},
+# A reachable and a curated-unreachable canonical case (gps-natural-0012's negativeProfiles is
+# [early]), and a Java scenario with overrides.
+CASES = [("canonical", "gps-natural-0012/maxed", True), ("canonical", "gps-natural-0012/early", False),
+         ("routing-issues", "GE centre walk (routing control)", True)]
+SETTINGS = {
+    "legacy": {"algorithm": "legacy"},
+    "astar": {"algorithm": "astar", "diagnostic": True, "astar_session": "target"},
 }
-# observation-v2's required fields, and the types the harness accepts for them.
+# What osrs-benchmarks reads from each observation, and the types it accepts.
 REQUIRED = {
-    "schema_version": int, "protocol_version": int, "run_id": str, "project": str,
-    "implementation": str, "algorithm": str, "route_id": str, "route_name": str,
-    "account_profile": str, "repetition": int, "reachable": (bool, type(None)),
-    "path_cost": (int, type(None)), "expected_reachable": bool, "correctness": str,
-    "total_ns": (int, type(None)),
+    "run_id": str, "suite": str, "scenario": str, "category": str, "profile": str, "repetition": int,
+    "expected_reachable": bool, "outcome": str, "check": str, "reachable": (bool, type(None)),
+    "path_cost": (int, type(None)), "path_length": (int, type(None)), "total_ns": (int, type(None)),
+    "termination_reason": str, "failure": str,
 }
 
 
@@ -48,63 +45,54 @@ class SmokeError(Exception):
     pass
 
 
-def manifest(project):
-    adapter_args = dict(PROJECTS[project])
-    return {
-        "format_version": 1,
-        "project": project,
-        "policy": {"repetitions": 1, "warmup": False, "synthetic_benchmark_time": CLOCK,
-                   "adapter_args": adapter_args},
-        "cases": [{"route_id": route, "profile": profile, "repetition": 0, "expected_reachable": reachable}
-                  for route, profile, reachable in CASES],
-    }
+def manifest(backend):
+    return dict(SETTINGS[backend], format_version=2,
+                warmup=[{"suite": CASES[0][0], "scenario": CASES[0][1]}],
+                cases=[{"suite": suite, "scenario": name, "repetition": 0} for suite, name, _ in CASES])
 
 
-def check_envelope(project, envelope):
-    """Raises SmokeError unless the envelope is one the harness accepts with every case as expected."""
-    if envelope.get("protocol_version") != 1 or not isinstance(envelope.get("execution_metadata"), dict) \
+def check_envelope(backend, envelope):
+    """Raises SmokeError unless osrs-benchmarks would accept the result with every case as expected."""
+    if envelope.get("format_version") != 2 or not isinstance(envelope.get("execution_metadata"), dict) \
             or not isinstance(envelope.get("observations"), list):
-        raise SmokeError("not a protocol-v1 envelope")
+        raise SmokeError("not a format-2 result")
     execution = envelope["execution_metadata"]
-    for field in ("implementation", "algorithm"):
-        if not isinstance(execution.get(field), str):
-            raise SmokeError(f"execution_metadata.{field} must be a string")
-    if execution["algorithm"] != PROJECTS[project]["algorithm"]:
-        raise SmokeError(f"algorithm is {execution['algorithm']!r}")
-    if execution.get("synthetic_benchmark_time") != CLOCK:
-        raise SmokeError(f"synthetic_benchmark_time is {execution.get('synthetic_benchmark_time')!r}")
+    if execution.get("algorithm") != backend:
+        raise SmokeError(f"algorithm is {execution.get('algorithm')!r}")
+    for field in ("java_version", "vm_name", "vm_version"):
+        if not isinstance(execution.get("runtime", {}).get(field), str):
+            raise SmokeError(f"execution_metadata.runtime.{field} must be a string")
     rows = envelope["observations"]
-    seen = sorted((row.get("route_id"), row.get("account_profile")) for row in rows)
-    if seen != sorted((route, profile) for route, profile, _ in CASES):
+    seen = sorted((row.get("suite"), row.get("scenario")) for row in rows)
+    if seen != sorted((suite, name) for suite, name, _ in CASES):
         raise SmokeError(f"observations are for {seen}")
     for row in rows:
-        label = f"{row['route_id']}/{row['account_profile']}"
+        label = f"{row['suite']}/{row['scenario']}"
         for field, kind in REQUIRED.items():
-            # bool is an int in Python; the harness's schema keeps them apart.
+            # bool is an int in Python; osrs-benchmarks keeps them apart.
             if field not in row or not isinstance(row[field], kind) \
                     or (kind is int and isinstance(row[field], bool)):
                 raise SmokeError(f"{label}: {field} is missing or has the wrong type")
-        if row["schema_version"] != 2 or row["protocol_version"] != 1 or row["project"] != project:
-            raise SmokeError(f"{label}: wrong schema_version, protocol_version or project")
-        if row["correctness"] != "expected":
-            raise SmokeError(f"{label}: correctness is {row['correctness']!r} ({row.get('failure_reason')})")
-        if row["reachable"] is not row["expected_reachable"]:
-            raise SmokeError(f"{label}: reachable is {row['reachable']}")
+        expected = next(reachable for suite, name, reachable in CASES if (suite, name) == (row["suite"], row["scenario"]))
+        if row["outcome"] != "ok":
+            raise SmokeError(f"{label}: outcome is {row['outcome']!r} ({row['check'] or row['failure']})")
+        if row["expected_reachable"] is not expected or row["reachable"] is not expected:
+            raise SmokeError(f"{label}: expected_reachable {row['expected_reachable']}, reachable {row['reachable']}")
         if (row["path_cost"] is None) == row["reachable"]:
             raise SmokeError(f"{label}: path_cost {row['path_cost']} disagrees with reachable")
         if row["total_ns"] is None:
             raise SmokeError(f"{label}: a measured observation needs total_ns")
-        if PROJECTS[project]["diagnostic"] and not isinstance(row.get("graph_reused"), bool):
+        if SETTINGS[backend].get("diagnostic") and not isinstance(row.get("graph_reused"), bool):
             raise SmokeError(f"{label}: diagnostic A* observation has no graph_reused")
 
 
-def run(project, output_dir):
+def run(backend, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = output_dir / f"{project}-manifest.json"
-    output = output_dir / f"{project}.json"
-    manifest_path.write_text(json.dumps(manifest(project)))
-    env = dict(os.environ, BENCHMARK_RUN_ID=f"ci-smoke-{project}")
-    subprocess.run(["./gradlew", "--quiet", "benchmarkCanonical",
+    manifest_path = output_dir / f"{backend}-manifest.json"
+    output = output_dir / f"{backend}.json"
+    manifest_path.write_text(json.dumps(manifest(backend)))
+    env = dict(os.environ, BENCHMARK_RUN_ID=f"ci-smoke-{backend}")
+    subprocess.run(["./gradlew", "--quiet", "benchmark",
                     f"--args=--manifest {manifest_path} --output {output}"],
                    cwd=ROOT, env=env, check=True)
     return json.loads(output.read_text())
@@ -113,12 +101,12 @@ def run(project, output_dir):
 def main():
     output_dir = ROOT / "build/benchmark-smoke"
     failures = 0
-    for project in PROJECTS:
+    for backend in SETTINGS:
         try:
-            check_envelope(project, run(project, output_dir))
-            print(f"{project}: ok")
+            check_envelope(backend, run(backend, output_dir))
+            print(f"{backend}: ok")
         except (SmokeError, subprocess.CalledProcessError, ValueError) as error:
-            print(f"{project}: FAILED: {error}", file=sys.stderr)
+            print(f"{backend}: FAILED: {error}", file=sys.stderr)
             failures += 1
     return 1 if failures else 0
 

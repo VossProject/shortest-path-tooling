@@ -149,15 +149,15 @@ The argument forms and JSON fields are an agent-facing interface; keep them stab
 ./gradlew captureExpectedLengths -PdashboardSuite=routes [-PdashboardFilter=...]
 ```
 
-**Benchmark adapter** — `./gradlew benchmarkCanonical --args="--manifest M --output OUT"`,
-called by shortest-path-benchmarks. Each manifest case (`route_id`, `profile`) is the `canonical`
-scenario `<route_id>/<profile>`, with the routes of this checkout's `corpus/` (there is no `--corpus`); the adapter adds the synthetic clock, warmup, A* session modes
-(`cold`/`account`/`target`) and timings, and writes the protocol-v1 envelope.
+**Benchmark** — `./gradlew benchmark --args="--manifest M --output OUT"`, called by
+collisionlab/osrs-benchmarks. A manifest names scenarios of any suite by suite and name, with
+repetitions and optional warm-up scenarios; each runs as the other two runners run it and is judged by
+`Observation.check()`. The task adds the repetitions, warm-up, A* session modes
+(`cold`/`account`/`target`) and timings (the search alone, after the account is compiled).
 
-The adapter's routes and accounts are both this checkout's (`corpus/` and `accounts/`; there is no
-`--corpus`), and its execution metadata records the tooling and plugin commits, so those commits and the
-manifest's cases identify everything a run used. To benchmark other routes or accounts, check out the
-tooling revision that has them.
+The scenarios, routes and accounts are all this checkout's, and the result's execution metadata
+records the tooling and plugin commits, so those commits and the manifest identify everything a run
+used. To benchmark other scenarios, check out the tooling revision that has them.
 
 ## Expected lengths
 
@@ -179,8 +179,8 @@ maps scenario name to path length (steps).
 |---|---|---|
 | `:accounts:test` | no | the account compiler and the canonical accounts |
 | `ScenariosTest`, `CanonicalCorpusTest`, `ProfilesTest`, `ConfigParityTest` | no | every suite loads and compiles its accounts; names are unique; expected-length files name real scenarios; routes are well formed; profiles and overrides reach the pathfinder config; every plugin setting has a `PluginSettings` twin |
-| `RouteCliTest`, `BenchmarkMainTest` | a few canonical routes, legacy and A* | the CLI's forms and the benchmark adapter agree; manifest validation; A* session modes; walking-only routes |
-| `scripts/benchmark_smoke.py` | two canonical cases, legacy and A* | `benchmarkCanonical` run as shortest-path-benchmarks runs it, and its output as the harness reads it (keep the two repositories in step) |
+| `RouteCliTest`, `BenchmarkMainTest` | a few canonical routes and one Java scenario, legacy and A* | the CLI's forms, the benchmark task and the suites agree; manifest validation; A* session modes; walking-only routes |
+| `scripts/benchmark_smoke.py` | two canonical scenarios and one Java scenario, legacy and A* | `benchmark` run as osrs-benchmarks runs it, and its output as osrs-benchmarks reads it (keep the two repositories in step) |
 | Python `tests/`, `maintenance.py validate` | no | the scripts, and the plugin's committed data |
 
 No CI test runs a whole suite against its expectations (reachability, minimum and exact lengths): that is

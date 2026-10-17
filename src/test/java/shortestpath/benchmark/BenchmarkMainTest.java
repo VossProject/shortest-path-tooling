@@ -33,54 +33,45 @@ public class BenchmarkMainTest {
     }
 
     @Test
-    public void rejectsUnknownRoute() throws Exception {
-        Path manifest = manifest("unknown-route", "early", 1, 100000000L);
-        expectFailure(manifest);
+    public void rejectsUnknownScenario() throws Exception {
+        expectFailure(writeManifest("legacy", List.of(caseJson("canonical", "unknown-route/early", 0))));
     }
 
     @Test
-    public void rejectsUnknownProfile() throws Exception {
-        Route route = firstRoute();
-        Path manifest = manifest(route.getId(), "unknown", 1, 100000000L);
-        expectFailure(manifest);
+    public void rejectsUnknownSuite() throws Exception {
+        expectFailure(writeManifest("legacy", List.of(caseJson("no-such-suite", firstCanonical(), 0))));
     }
 
     @Test
     public void rejectsDuplicateCase() throws Exception {
-        Route route = firstRoute();
-        boolean expectedReachable = expectedReachable(route, "early");
-        Path manifest = writeManifest(List.of(caseJson(route, "early", 0, expectedReachable),
-            caseJson(route, "early", 0, expectedReachable)), 1, false, 100000000L, false);
-        expectFailure(manifest);
+        expectFailure(writeManifest("legacy", List.of(caseJson("canonical", firstCanonical(), 0),
+            caseJson("canonical", firstCanonical(), 0))));
     }
 
     @Test
-    public void rejectsCorpusArgument() throws Exception {
-        // The routes are this checkout's corpus/, so a corpus from elsewhere can't run with these accounts.
-        try {
-            BenchmarkMain.main(new String[] {"--manifest", "m.json", "--corpus", "elsewhere", "--output", "o.json"});
-            Assert.fail("expected --corpus to be rejected");
-        } catch (IllegalArgumentException expected) {
-            Assert.assertTrue(expected.getMessage(), expected.getMessage().contains("--corpus"));
-        }
+    public void rejectsIncompleteRepetitions() throws Exception {
+        String other = "gps-natural-0012/maxed";
+        expectFailure(writeManifest("legacy", List.of(caseJson("canonical", firstCanonical(), 0),
+            caseJson("canonical", firstCanonical(), 1), caseJson("canonical", other, 0))));
     }
 
     @Test
-    public void rejectsUnsupportedProtocolVersion() throws Exception {
-        Route route = firstRoute();
-        Path manifest = manifest(route.getId(), "early", 1, 100000000L);
+    public void rejectsUnknownFieldsAndFormats() throws Exception {
+        Path manifest = writeManifest("legacy", List.of(caseJson("canonical", firstCanonical(), 0)));
         JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-        json.addProperty("format_version", 99);
+        json.addProperty("format_version", 1);
+        Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
+        expectFailure(manifest);
+        json.addProperty("format_version", 2);
+        json.addProperty("synthetic_benchmark_time", 100000000L);
         Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
         expectFailure(manifest);
     }
 
     @Test
     public void executesOnlyExplicitCasesAndReportsJvmMetadata() throws Exception {
-        Route route = firstRoute();
-        boolean expectedReachable = expectedReachable(route, "early");
-        Path manifest = writeManifest(List.of(caseJson(route, "early", 0, expectedReachable),
-            caseJson(route, "early", 1, expectedReachable)), 2, false, 123456789L, true);
+        Path manifest = writeManifest("legacy", List.of(caseJson("canonical", firstCanonical(), 0),
+            caseJson("canonical", firstCanonical(), 1)));
         Path output = Files.createTempFile("benchmark-main-result", ".json");
         Path progress = Files.createTempFile("benchmark-main-progress", ".jsonl");
         System.setProperty("benchmark.runId", "java-test-run");
@@ -92,14 +83,16 @@ public class BenchmarkMainTest {
             System.clearProperty("benchmark.progressFile");
         }
         JsonObject result = JsonParser.parseString(Files.readString(output)).getAsJsonObject();
-        Assert.assertEquals(1, result.get("protocol_version").getAsInt());
+        Assert.assertEquals(2, result.get("format_version").getAsInt());
         Assert.assertEquals(2, result.getAsJsonArray("observations").size());
-        Assert.assertTrue(result.getAsJsonObject("execution_metadata")
-            .getAsJsonObject("runtime").get("java_version").getAsString().length() > 0);
-        Assert.assertEquals(123456789L, result.getAsJsonObject("execution_metadata")
-            .get("synthetic_benchmark_time").getAsLong());
-        Assert.assertEquals(0, result.getAsJsonArray("observations").get(0)
-            .getAsJsonObject().get("repetition").getAsInt());
+        JsonObject metadata = result.getAsJsonObject("execution_metadata");
+        Assert.assertTrue(metadata.getAsJsonObject("runtime").get("java_version").getAsString().length() > 0);
+        Assert.assertEquals(2, metadata.get("repetitions").getAsInt());
+        JsonObject first = result.getAsJsonArray("observations").get(0).getAsJsonObject();
+        Assert.assertEquals(0, first.get("repetition").getAsInt());
+        Assert.assertEquals("canonical", first.get("suite").getAsString());
+        Assert.assertEquals(firstCanonical(), first.get("scenario").getAsString());
+        Assert.assertEquals("early", first.get("profile").getAsString());
         Assert.assertEquals(1, result.getAsJsonArray("observations").get(1)
             .getAsJsonObject().get("repetition").getAsInt());
         List<String> events = Files.readAllLines(progress);
@@ -110,36 +103,19 @@ public class BenchmarkMainTest {
             .get("type").getAsString());
     }
 
-    /** The manifest's synthetic clock is the time cooldowns are checked at, whatever the profile's own clock. */
+    /** A Java scenario runs with its own profile and overrides, as the route CLI and dashboard run it. */
     @Test
-    public void syntheticClockGovernsCooldowns() throws Exception {
-        long clock = 123456789L;
-        BenchmarkMain.Case current = new BenchmarkMain.Case(firstRoute(), "early", 0, true);
-        Assert.assertEquals(clock, BenchmarkMain.compileAccount(current, clock, account -> { })
-            .getConfig().evaluationTimeMinutes());
-        // A minigame teleport used 10 minutes before the clock is on its 20-minute cooldown; a day later it isn't.
-        Assert.assertFalse(hasFishingTrawlerTeleport(BenchmarkMain.compileAccount(current, clock,
-            account -> account.minigameTeleportUsedAt(clock - 10))));
-        Assert.assertTrue(hasFishingTrawlerTeleport(BenchmarkMain.compileAccount(current, clock + 24 * 60,
-            account -> account.minigameTeleportUsedAt(clock - 10))));
-    }
-
-    private static boolean hasFishingTrawlerTeleport(shortestpath.profiles.CompiledAccount account) {
-        return java.util.Arrays.stream(account.getConfig().getUsableTeleports(false))
-            .anyMatch(transport -> "Fishing Trawler Minigame Teleport".equals(transport.getDisplayInfo()));
-    }
-
-    @Test
-    public void acceptsAStarProjectWithAStarAlgorithm() throws Exception {
-        Path manifest = manifest(firstRoute().getId(), "early", 1, 100000000L);
-        JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-        json.addProperty("project", "shortest-path-astar");
-        json.getAsJsonObject("policy").getAsJsonObject("adapter_args")
-            .addProperty("algorithm", "astar");
-        Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
-        BenchmarkMain.Plan plan = BenchmarkMain.loadPlan(manifest);
-        Assert.assertEquals("shortest-path-astar", plan.project);
-        Assert.assertEquals("astar", plan.algorithm);
+    public void runsJavaScenariosAsTheOtherFrontendsDo() throws Exception {
+        String name = "GE centre walk (routing control)";
+        Observation direct = new ScenarioRunner(ScenarioRunner.Backend.LEGACY).run(Suites.find("routing-issues", name));
+        Path manifest = writeManifest("legacy", List.of(caseJson("routing-issues", name, 0)));
+        manifest = withField(manifest, "warmup", warmup("canonical", firstCanonical()));
+        JsonObject observation = onlyObservation(manifest);
+        Assert.assertEquals("ok", observation.get("outcome").getAsString());
+        Assert.assertEquals("UNIT_TEST", observation.get("profile").getAsString());
+        Assert.assertEquals("routing-control", observation.get("category").getAsString());
+        Assert.assertEquals(direct.getCost().intValue(), observation.get("path_cost").getAsInt());
+        Assert.assertEquals(direct.getPathLength(), observation.get("path_length").getAsInt());
     }
 
     @Test
@@ -148,11 +124,8 @@ public class BenchmarkMainTest {
         Assert.assertEquals(ScenarioRunner.AStarSession.ACCOUNT, BenchmarkMain.loadPlan(aStarManifest("account", false)).aStarSession);
         Assert.assertEquals(ScenarioRunner.AStarSession.TARGET, BenchmarkMain.loadPlan(aStarManifest("target", false)).aStarSession);
         expectFailure(aStarManifest("warm", false));
-        Path legacy = manifest(firstRoute().getId(), "early", 1, 100000000L);
-        JsonObject json = JsonParser.parseString(Files.readString(legacy)).getAsJsonObject();
-        json.getAsJsonObject("policy").getAsJsonObject("adapter_args").addProperty("astar_session", "target");
-        Files.writeString(legacy, new Gson().toJson(json), StandardCharsets.UTF_8);
-        expectFailure(legacy);
+        Path legacy = writeManifest("legacy", List.of(caseJson("canonical", firstCanonical(), 0)));
+        expectFailure(withField(legacy, "astar_session", new com.google.gson.JsonPrimitive("target")));
     }
 
     @Test
@@ -179,21 +152,15 @@ public class BenchmarkMainTest {
         List<JsonObject> cases = new java.util.ArrayList<>();
         for (Route route : routes) {
             for (String profile : List.of("early", "maxed")) {
-                cases.add(caseJson(route, profile, 0, expectedReachable(route, profile)));
+                cases.add(caseJson("canonical", route.getId() + "/" + profile, 0));
             }
         }
         Map<String, JsonElement> coldCosts = new HashMap<>();
         for (String session : List.of("cold", "account", "target")) {
-            Path manifest = writeManifest(cases, 1, false, 100000000L, true);
-            JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-            json.addProperty("project", "shortest-path-astar");
-            JsonObject adapterArgs = json.getAsJsonObject("policy").getAsJsonObject("adapter_args");
-            adapterArgs.addProperty("algorithm", "astar");
-            adapterArgs.addProperty("astar_session", session);
-            Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
+            Path manifest = withField(writeManifest("astar", cases), "diagnostic", new com.google.gson.JsonPrimitive(true));
+            manifest = withField(manifest, "astar_session", new com.google.gson.JsonPrimitive(session));
             for (JsonObject observation : observations(manifest)) {
-                String key = observation.get("route_id").getAsString() + "/"
-                    + observation.get("account_profile").getAsString();
+                String key = observation.get("scenario").getAsString();
                 assertStages(session + " " + key, observation, !session.equals("cold"), session.equals("target"));
                 if (session.equals("cold")) {
                     coldCosts.put(key, observation.get("path_cost"));
@@ -243,8 +210,7 @@ public class BenchmarkMainTest {
             Assert.assertEquals(suite.getCost().intValue(), named.get("cost").getAsInt());
             Assert.assertTrue(named.get("cost").getAsInt() > transported.get("cost").getAsInt());
 
-            Path manifest = writeManifest(List.of(caseJson("walking-only-0001", "maxed", 0, true)), 1, false,
-                100000000L, false);
+            Path manifest = writeManifest("legacy", List.of(caseJson("canonical", "walking-only-0001/maxed", 0)));
             Assert.assertEquals(suite.getCost().intValue(), onlyObservation(manifest).get("path_cost").getAsInt());
         } finally {
             if (previous == null) {
@@ -281,17 +247,14 @@ public class BenchmarkMainTest {
     }
 
     private static Path aStarManifest(String session, boolean warmup) throws Exception {
-        Route route = firstRoute();
-        Path manifest = writeManifest(List.of(caseJson(route, "early", 0, expectedReachable(route, "early"))),
-            1, warmup, 100000000L, true);
-        JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
-        json.addProperty("project", "shortest-path-astar");
-        JsonObject adapterArgs = json.getAsJsonObject("policy").getAsJsonObject("adapter_args");
-        adapterArgs.addProperty("algorithm", "astar");
-        if (session != null) {
-            adapterArgs.addProperty("astar_session", session);
+        Path manifest = writeManifest("astar", List.of(caseJson("canonical", firstCanonical(), 0)));
+        manifest = withField(manifest, "diagnostic", new com.google.gson.JsonPrimitive(true));
+        if (warmup) {
+            manifest = withField(manifest, "warmup", warmup("canonical", firstCanonical()));
         }
-        Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
+        if (session != null) {
+            manifest = withField(manifest, "astar_session", new com.google.gson.JsonPrimitive(session));
+        }
         return manifest;
     }
 
@@ -315,58 +278,45 @@ public class BenchmarkMainTest {
         return observations;
     }
 
-    private static Route firstRoute() throws Exception {
-        return Route.load(CORPUS.resolve("corpus/routes-v1.json")).get(0);
+    /** The first canonical route with the early profile, as a canonical scenario name. */
+    private static String firstCanonical() throws Exception {
+        return Route.load(CORPUS.resolve("corpus/routes-v1.json")).get(0).getId() + "/early";
     }
 
-    private static boolean expectedReachable(Route route, String profile) {
-        return !route.getNegativeProfiles().contains(profile);
-    }
-
-    private static Path manifest(String routeId, String profile, int repetitions, long clock)
-            throws Exception {
-        Route route = firstRoute();
-        boolean expectedReachable = profile.equals("early") && route.getId().equals(routeId)
-            ? expectedReachable(route, profile) : false;
-        return writeManifest(List.of(caseJson(routeId, profile, 0, expectedReachable)), repetitions,
-            false, clock, false);
-    }
-
-    private static JsonObject caseJson(Route route, String profile, int repetition,
-            boolean expectedReachable) {
-        return caseJson(route.getId(), profile, repetition, expectedReachable);
-    }
-
-    private static JsonObject caseJson(String routeId, String profile, int repetition,
-            boolean expectedReachable) {
+    private static JsonObject caseJson(String suite, String scenario, int repetition) {
         JsonObject result = new JsonObject();
-        result.addProperty("route_id", routeId);
-        result.addProperty("profile", profile);
+        result.addProperty("suite", suite);
+        result.addProperty("scenario", scenario);
         result.addProperty("repetition", repetition);
-        result.addProperty("expected_reachable", expectedReachable);
         return result;
     }
 
-    private static Path writeManifest(List<JsonObject> cases, int repetitions, boolean warmup,
-            long clock, boolean diagnostic) throws Exception {
-        JsonObject policy = new JsonObject();
-        policy.addProperty("repetitions", repetitions);
-        policy.addProperty("warmup", warmup);
-        policy.addProperty("synthetic_benchmark_time", clock);
-        JsonObject adapterArgs = new JsonObject();
-        adapterArgs.addProperty("diagnostic", diagnostic);
-        policy.add("adapter_args", adapterArgs);
+    private static com.google.gson.JsonArray warmup(String suite, String scenario) {
+        JsonObject entry = new JsonObject();
+        entry.addProperty("suite", suite);
+        entry.addProperty("scenario", scenario);
+        com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+        array.add(entry);
+        return array;
+    }
 
+    private static Path writeManifest(String algorithm, List<JsonObject> cases) throws Exception {
         JsonObject result = new JsonObject();
-        result.addProperty("format_version", 1);
-        result.addProperty("project", "shortest-path");
-        result.add("policy", policy);
+        result.addProperty("format_version", 2);
+        result.addProperty("algorithm", algorithm);
         com.google.gson.JsonArray array = new com.google.gson.JsonArray();
         cases.forEach(array::add);
         result.add("cases", array);
         Path path = Files.createTempFile("benchmark-manifest", ".json");
         Files.writeString(path, new Gson().toJson(result), StandardCharsets.UTF_8);
         return path;
+    }
+
+    private static Path withField(Path manifest, String field, JsonElement value) throws Exception {
+        JsonObject json = JsonParser.parseString(Files.readString(manifest)).getAsJsonObject();
+        json.add(field, value);
+        Files.writeString(manifest, new Gson().toJson(json), StandardCharsets.UTF_8);
+        return manifest;
     }
 
     private static void expectFailure(Path manifest) throws Exception {

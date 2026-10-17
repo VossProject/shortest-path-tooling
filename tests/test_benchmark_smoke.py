@@ -1,4 +1,4 @@
-"""The benchmark smoke check accepts what the harness accepts and rejects the rest."""
+"""The benchmark smoke check accepts what osrs-benchmarks accepts and rejects the rest."""
 
 import copy
 import sys
@@ -10,42 +10,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import benchmark_smoke as smoke  # noqa: E402
 
 
-def envelope(project="shortest-path-astar"):
+def envelope(backend="astar"):
     rows = []
-    for route, profile, reachable in smoke.CASES:
+    for suite, name, reachable in smoke.CASES:
         rows.append({
-            "schema_version": 2, "protocol_version": 1, "run_id": "ci", "project": project,
-            "implementation": "shortest-path-java", "algorithm": smoke.PROJECTS[project]["algorithm"],
-            "route_id": route, "route_name": "a route", "account_profile": profile, "repetition": 0,
+            "run_id": "ci", "suite": suite, "scenario": name, "category": "gps-natural", "profile": "maxed",
+            "repetition": 0, "expected_reachable": reachable, "outcome": "ok", "check": "",
             "reachable": reachable, "path_cost": 363 if reachable else None,
-            "expected_reachable": reachable, "correctness": "expected", "total_ns": 1000,
+            "path_length": 120 if reachable else 0, "total_ns": 1000, "termination_reason": "", "failure": "",
             "graph_reused": True,
         })
-    return {"protocol_version": 1, "observations": rows,
-            "execution_metadata": {"implementation": "shortest-path-java",
-                                   "algorithm": smoke.PROJECTS[project]["algorithm"],
-                                   "synthetic_benchmark_time": smoke.CLOCK}}
+    return {"format_version": 2, "observations": rows,
+            "execution_metadata": {"algorithm": backend,
+                                   "runtime": {"java_version": "17", "vm_name": "vm", "vm_version": "1"}}}
 
 
 def test_accepts_a_good_envelope():
-    smoke.check_envelope("shortest-path-astar", envelope())
+    smoke.check_envelope("astar", envelope())
 
 
 @pytest.mark.parametrize("break_it", [
-    lambda e: e.update(protocol_version=2),
-    lambda e: e["execution_metadata"].update(synthetic_benchmark_time=0),
+    lambda e: e.update(format_version=1),
     lambda e: e["execution_metadata"].update(algorithm="legacy"),
+    lambda e: e["execution_metadata"]["runtime"].pop("java_version"),
     lambda e: e["observations"].pop(),
-    lambda e: e["observations"][0].pop("route_name"),
+    lambda e: e["observations"][0].pop("category"),
     lambda e: e["observations"][0].update(repetition=True),
-    lambda e: e["observations"][0].update(correctness="reachability_mismatch"),
+    lambda e: e["observations"][0].update(outcome="unexpected"),
     lambda e: e["observations"][1].update(reachable=True, path_cost=12),
     lambda e: e["observations"][0].update(path_cost=None),
     lambda e: e["observations"][0].update(total_ns=None),
     lambda e: e["observations"][0].pop("graph_reused"),
 ])
-def test_rejects_what_the_harness_would(break_it):
+def test_rejects_what_osrs_benchmarks_would(break_it):
     bad = copy.deepcopy(envelope())
     break_it(bad)
     with pytest.raises(smoke.SmokeError):
-        smoke.check_envelope("shortest-path-astar", bad)
+        smoke.check_envelope("astar", bad)

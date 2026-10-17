@@ -66,10 +66,10 @@ The default remains the `./shortest-path` Git submodule.
 | `./gradlew sailingAmenityVarbitDump -PsailingAmenityCacheDir=<dir> -PsailingAmenityXteaPath=<keys.json>` | Dump Sailing island amenity varbits from an OSRS cache |
 | `./gradlew routingCuts -PkahipNodeSeparator=<path>` | Generate the A* pathfinder's `routing-cuts.bin` with KaHIP (see below) |
 | `./gradlew routingCutsReport` | Report how many committed cuts still apply to the current collision map |
-| `./gradlew benchmarkCanonical --args="..."` | Run a resolved benchmark manifest (used by shortest-path-benchmarks) |
+| `./gradlew benchmark --args="..."` | Run a benchmark manifest's scenarios (used by collisionlab/osrs-benchmarks) |
 | `./gradlew route -ProuteArgs="..."` | Query one canonical route and print its selected path |
 
-The route query uses the same profiles and adapter as `benchmarkCanonical`. PROFILE is any
+The route query uses the same profiles and runner as `benchmark`. PROFILE is any
 profile (`early`/`mid`/`end`/`maxed` or a dashboard preset such as `UNIT_TEST`), and
 `-ProuteSuite=SUITE -ProuteScenario="NAME"` runs one scenario of any suite
 (`-ProuteArgs=--list` lists them). It reads the routes in this checkout's `corpus/`; add
@@ -129,36 +129,27 @@ All options are passed via `-P`:
 
 For the datasets and when to use each, see [docs/dashboard-design.md](docs/dashboard-design.md).
 
-## Canonical corpus benchmark
+## Benchmarks
 
-The canonical routes live in [`corpus/`](corpus/README.md) and the canonical accounts are Java in
-[`accounts/`](accounts/README.md). `benchmarkCanonical`, the route CLI and the tests all use this
-checkout's routes and accounts, so the tooling commit in a benchmark's execution metadata identifies
-both. There is no `--corpus` argument: to benchmark other routes or accounts, check out the tooling
-revision that has them.
-
-`benchmarkCanonical` is the integration point for the
-[shortest-path-benchmarks](https://github.com/osrs-pathfinding/shortest-path-benchmarks)
-harness. It runs exactly the route/profile/repetition cases of a resolved
-manifest in one JVM, for the legacy or A* backend:
+`benchmark` is the integration point for
+[collisionlab/osrs-benchmarks](https://github.com/collisionlab/osrs-benchmarks), which runs it nightly
+over every scenario of every suite and records the results. It runs the scenarios a manifest names
+(by suite and scenario name, with repetitions and optional warm-up scenarios) in one JVM, for the
+legacy or A* backend:
 
 ```bash
-./gradlew benchmarkCanonical \
-  --args="--manifest /path/to/resolved-experiment.json \
-          --output build/benchmarks/java-adapter.json"
+./gradlew benchmark --args="--manifest manifest.json --output build/benchmarks/result.json"
 ```
 
-The output is one protocol-v1 JSON envelope with execution metadata, the Java
-VM identity, dependency Git identities, the synthetic benchmark clock, and v2
-observations. Expected reachability comes from each route's curated
-`negativeProfiles`; there is no expected cost.
+Each scenario runs exactly as the route CLI and the dashboard run it, through `ScenarioRunner`, and
+is judged by its own expectations (`Observation.check()`: reachability, then the exact or minimum
+length); see [docs/scenarios.md](docs/scenarios.md). The manifest format is documented on
+`BenchmarkMain.loadPlan`. The scenarios, routes and accounts all come from this checkout, so the
+tooling and plugin commits in the result's execution metadata identify everything a case ran with.
 
-Each case is the `canonical` suite scenario `<route id>/<profile>`, run through the same
-`ScenarioRunner` as the route CLI and the dashboard; see [docs/scenarios.md](docs/scenarios.md).
-
-CI runs a light benchmark through this adapter (`python3 scripts/benchmark_smoke.py`: two cases on
-each backend, checked the way the harness reads them). If you change the adapter's arguments,
-manifest format or output, update shortest-path-benchmarks to match.
+CI runs a light benchmark through it (`python3 scripts/benchmark_smoke.py`: three scenarios on each
+backend, checked the way osrs-benchmarks reads them). If you change its arguments, manifest format
+or output, update osrs-benchmarks to match.
 
 ## Keeping up with the plugin
 

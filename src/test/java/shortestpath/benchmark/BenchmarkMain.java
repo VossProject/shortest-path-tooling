@@ -22,25 +22,22 @@ import shortestpath.pathfinder.AStarPathfinder;
 import shortestpath.pathfinder.PathfinderResult;
 import shortestpath.pathfinder.astar.AStarForwardSearch;
 import shortestpath.profiles.CompiledAccount;
-import shortestpath.profiles.Profiles;
-import shortestpath.profiles.Setup;
-import shortestpath.scenarios.CanonicalCorpus;
 import shortestpath.scenarios.Observation;
-import shortestpath.scenarios.Route;
 import shortestpath.scenarios.Scenario;
 import shortestpath.scenarios.ScenarioRunner;
+import shortestpath.scenarios.Suites;
 
 /**
- * Stable, manifest-driven Java adapter entry point.
+ * The benchmark entry point ({@code ./gradlew benchmark --args="--manifest M --output OUT"}), called by
+ * collisionlab/osrs-benchmarks. A manifest lists scenarios by suite and name ({@link Suites}); each runs
+ * exactly as the route CLI and the dashboard run it, through {@link ScenarioRunner}, and is judged by
+ * its own expectations ({@link Observation#check()}).
  *
- * <p>The routes and the canonical accounts both come from this tooling checkout ({@code corpus/} and
- * {@code accounts/}), so the tooling commit recorded in the execution metadata identifies everything a case
- * ran with.
+ * <p>The scenarios, routes and accounts all come from this tooling checkout, so the tooling and plugin
+ * commits in the execution metadata identify everything a case ran with.
  */
 public final class BenchmarkMain {
-    private static final int FORMAT_VERSION = 1;
-    private static final int PROTOCOL_VERSION = 1;
-    private static final String IMPLEMENTATION = "shortest-path-java";
+    private static final int FORMAT_VERSION = 2;
 
     private BenchmarkMain() { }
 
@@ -51,37 +48,23 @@ public final class BenchmarkMain {
 
     static void run(Path manifestPath, Path output) throws IOException {
         Plan plan = loadPlan(manifestPath);
-        String runId = System.getenv("BENCHMARK_RUN_ID");
-        if (runId == null || runId.isBlank()) {
-            runId = System.getProperty("benchmark.runId");
-        }
-        if (runId == null || runId.isBlank()) {
+        String runId = setting("BENCHMARK_RUN_ID", "benchmark.runId");
+        if (runId == null) {
             throw new IllegalArgumentException("BENCHMARK_RUN_ID is required");
         }
 
         ScenarioRunner runner = new ScenarioRunner(plan.backend, plan.aStarSession);
         runner.prepare();
         long routingStaticBuildNanos = runner.getRoutingStaticBuildNanos();
-        Map<String, CompiledAccount> accounts = new HashMap<>();
-        Map<String, String> accountFailures = new HashMap<>();
-        // A canonical scenario is its profile and nothing else, so one compiled account serves every
-        // case with the same profile and transport mode; it is evaluated at the manifest's clock.
-        for (Case current : plan.logicalCases) {
-            String key = accountKey(current.profile, current.route.isAllowTransports());
-            if (accounts.containsKey(key) || accountFailures.containsKey(key)) {
-                continue;
-            }
-            try {
-                accounts.put(key, compileAccount(current, plan.syntheticBenchmarkTime, account -> { }));
-            } catch (RuntimeException exception) {
-                accountFailures.put(key, exception.getClass().getName() + ": " + exception.getMessage());
-            }
-        }
 
-        if (plan.warmup) {
+        if (!plan.warmup.isEmpty()) {
             progressPhase("warming up");
-            for (Case current : plan.logicalCases) {
-                execute(current, plan, accounts, accountFailures, runner, false, runId);
+            for (Scenario scenario : plan.warmup) {
+                try {
+                    runner.run(scenario, scenario.compile(), ScenarioRunner.Profiling.OFF);
+                } catch (RuntimeException ignored) {
+                    // A warm-up scenario that fails is reported when it is measured, if it is.
+                }
             }
         }
 
@@ -89,13 +72,13 @@ public final class BenchmarkMain {
         progressPhase("running");
         for (Case current : plan.cases) {
             progressStart(current);
-            JsonObject observation = execute(current, plan, accounts, accountFailures, runner, true, runId);
+            JsonObject observation = execute(current, plan, runner, runId);
             observations.add(observation);
             progressComplete(observation);
         }
 
         JsonObject envelope = new JsonObject();
-        envelope.addProperty("protocol_version", PROTOCOL_VERSION);
+        envelope.addProperty("format_version", FORMAT_VERSION);
         envelope.add("execution_metadata", executionMetadata(plan, routingStaticBuildNanos));
         JsonArray rows = new JsonArray();
         observations.forEach(rows::add);
@@ -106,16 +89,12 @@ public final class BenchmarkMain {
             StandardCharsets.UTF_8);
     }
 
-    /**
-     * The case's account at the manifest's synthetic clock, which every timed requirement (cooldowns) is
-     * evaluated at. {@code override} changes the account first; the adapter passes none.
-     */
-    static CompiledAccount compileAccount(Case current, long syntheticBenchmarkTime,
-            java.util.function.Consumer<shortestpath.accounts.Account.Builder> override) {
-        Setup setup = current.scenario().setup();
-        setup.account.nowMinutes(syntheticBenchmarkTime);
-        override.accept(setup.account);
-        return setup.compile();
+    private static String setting(String environment, String property) {
+        String value = System.getenv(environment);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(property);
+        }
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static void progressPhase(String phase) throws IOException {
@@ -128,8 +107,8 @@ public final class BenchmarkMain {
     private static void progressStart(Case current) throws IOException {
         JsonObject event = new JsonObject();
         event.addProperty("type", "case-start");
-        event.addProperty("route_id", current.route.getId());
-        event.addProperty("account_profile", current.profile);
+        event.addProperty("suite", current.suite);
+        event.addProperty("scenario", current.scenario.getName());
         event.addProperty("repetition", current.repetition);
         appendProgress(event);
     }
@@ -142,137 +121,131 @@ public final class BenchmarkMain {
     }
 
     private static void appendProgress(JsonObject event) throws IOException {
-        String progress = System.getenv("BENCHMARK_PROGRESS_FILE");
-        if (progress == null || progress.isBlank()) {
-            progress = System.getProperty("benchmark.progressFile");
-        }
-        if (progress == null || progress.isBlank()) return;
+        String progress = setting("BENCHMARK_PROGRESS_FILE", "benchmark.progressFile");
+        if (progress == null) return;
         Path path = Path.of(progress).toAbsolutePath();
         Files.createDirectories(path.getParent());
         Files.writeString(path, event + "\n", StandardCharsets.UTF_8,
             StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
+    /**
+     * Reads and checks a format-2 manifest:
+     *
+     * <pre>{@code
+     * {"format_version": 2, "algorithm": "legacy" | "astar",
+     *  "astar_session": "cold" | "account" | "target",   (optional, astar only; default cold)
+     *  "diagnostic": false,                               (optional: search counters and phase timings)
+     *  "warmup": [{"suite": S, "scenario": NAME}, ...],   (run once each before measuring; not reported)
+     *  "cases": [{"suite": S, "scenario": NAME, "repetition": N}, ...]}
+     * }</pre>
+     *
+     * Every scenario in {@code cases} must have repetitions 0 to R-1, the same R for all.
+     */
     static Plan loadPlan(Path manifestPath) throws IOException {
         JsonObject manifest = JsonParser.parseString(
             Files.readString(manifestPath, StandardCharsets.UTF_8)).getAsJsonObject();
-        requireInt(manifest, "format_version", FORMAT_VERSION);
-        String project = requireString(manifest, "project");
-        if (!project.equals("shortest-path") && !project.equals("shortest-path-astar")) {
-            throw new IllegalArgumentException("unsupported Java benchmark project: " + project);
+        Set<String> known = Set.of("format_version", "algorithm", "astar_session", "diagnostic", "warmup", "cases");
+        for (String key : manifest.keySet()) {
+            if (!known.contains(key)) {
+                throw new IllegalArgumentException("unknown manifest field: " + key);
+            }
         }
-        JsonObject policy = requiredObject(manifest, "policy");
-        int repetitions = requirePositiveInt(policy, "repetitions");
-        boolean warmup = requireBoolean(policy, "warmup");
-        long syntheticTime = requireNonNegativeLong(policy, "synthetic_benchmark_time");
-        JsonObject adapterArgs = requiredObject(policy, "adapter_args");
-        boolean diagnostic = false;
-        ScenarioRunner.Backend backend = ScenarioRunner.Backend.LEGACY;
-        ScenarioRunner.AStarSession aStarSession = ScenarioRunner.AStarSession.COLD;
-        for (String key : adapterArgs.keySet()) {
-            if (key.equals("diagnostic")) diagnostic = requireBoolean(adapterArgs, key);
-            else if (key.equals("algorithm")) backend = ScenarioRunner.Backend.parse(requireString(adapterArgs, key));
-            else if (key.equals("astar_session")) {
-                aStarSession = ScenarioRunner.AStarSession.parse(requireString(adapterArgs, key));
-            } else throw new IllegalArgumentException("unsupported Java adapter argument: " + key);
+        if (requireNonNegativeInt(manifest, "format_version") != FORMAT_VERSION) {
+            throw new IllegalArgumentException("manifest format_version must be " + FORMAT_VERSION);
         }
-        boolean aStar = backend == ScenarioRunner.Backend.ASTAR;
-        if (project.equals("shortest-path-astar") != aStar) {
-            throw new IllegalArgumentException("benchmark project and algorithm disagree");
-        }
-        if (!aStar && aStarSession != ScenarioRunner.AStarSession.COLD) {
+        ScenarioRunner.Backend backend = ScenarioRunner.Backend.parse(requireString(manifest, "algorithm"));
+        ScenarioRunner.AStarSession aStarSession = manifest.has("astar_session")
+            ? ScenarioRunner.AStarSession.parse(requireString(manifest, "astar_session"))
+            : ScenarioRunner.AStarSession.COLD;
+        if (backend != ScenarioRunner.Backend.ASTAR && manifest.has("astar_session")) {
             throw new IllegalArgumentException("astar_session requires the astar algorithm");
         }
+        boolean diagnostic = manifest.has("diagnostic") && requireBoolean(manifest, "diagnostic");
 
-        Map<String, Route> routes = new LinkedHashMap<>();
-        for (Route route : CanonicalCorpus.routes(CanonicalCorpus.dir())) {
-            routes.put(route.getId(), route);
+        ScenarioIndex index = new ScenarioIndex();
+        List<Scenario> warmup = new ArrayList<>();
+        if (manifest.has("warmup")) {
+            for (JsonElement element : requiredArray(manifest, "warmup")) {
+                JsonObject raw = element.getAsJsonObject();
+                warmup.add(index.get(requireString(raw, "suite"), requireString(raw, "scenario")));
+            }
         }
+
         JsonArray rawCases = requiredArray(manifest, "cases");
         if (rawCases.size() == 0) {
             throw new IllegalArgumentException("manifest cases must not be empty");
         }
-
         List<Case> cases = new ArrayList<>();
-        Set<String> identities = new HashSet<>();
+        Map<String, Set<Integer>> repetitions = new LinkedHashMap<>();
+        int maxRepetition = 0;
         for (JsonElement element : rawCases) {
             JsonObject raw = element.getAsJsonObject();
-            String routeId = requireString(raw, "route_id");
-            String profile = requireString(raw, "profile");
+            String suite = requireString(raw, "suite");
+            Scenario scenario = index.get(suite, requireString(raw, "scenario"));
             int repetition = requireNonNegativeInt(raw, "repetition");
-            if (repetition >= repetitions) {
-                throw new IllegalArgumentException("repetition outside policy: " + repetition);
+            String key = suite + "\n" + scenario.getName();
+            if (!repetitions.computeIfAbsent(key, ignored -> new HashSet<>()).add(repetition)) {
+                throw new IllegalArgumentException("duplicate manifest case: " + suite + " / "
+                    + scenario.getName() + " repetition " + repetition);
             }
-            Route route = routes.get(routeId);
-            if (route == null) {
-                throw new IllegalArgumentException("unknown route ID: " + routeId);
-            }
-            if (!Profiles.canonicalNames().contains(profile)) {
-                throw new IllegalArgumentException("unknown profile ID: " + profile);
-            }
-            String identity = caseKey(routeId, profile, repetition);
-            if (!identities.add(identity)) {
-                throw new IllegalArgumentException("duplicate manifest case: " + identity);
-            }
-            boolean expectedReachable = requireBoolean(raw, "expected_reachable");
-            boolean curatedReachable = !route.getNegativeProfiles().contains(profile);
-            if (expectedReachable != curatedReachable) {
-                throw new IllegalArgumentException(
-                    "manifest expected_reachable disagrees with curated negativeProfiles: " + identity);
-            }
-            cases.add(new Case(route, profile, repetition, expectedReachable));
+            maxRepetition = Math.max(maxRepetition, repetition);
+            cases.add(new Case(suite, scenario, repetition));
         }
+        for (Map.Entry<String, Set<Integer>> entry : repetitions.entrySet()) {
+            if (entry.getValue().size() != maxRepetition + 1) {
+                throw new IllegalArgumentException("manifest repetitions are incomplete: "
+                    + entry.getKey().replace('\n', '/'));
+            }
+        }
+        return new Plan(cases, warmup, maxRepetition + 1, diagnostic, backend, aStarSession);
+    }
 
-        Set<String> logicalKeys = new HashSet<>();
-        for (Case current : cases) {
-            logicalKeys.add(current.route.getId() + "/" + current.profile);
-        }
-        for (String logical : logicalKeys) {
-            for (int repetition = 0; repetition < repetitions; repetition++) {
-                if (!identities.contains(caseKey(logical.split("/", 2)[0], logical.split("/", 2)[1], repetition))) {
-                    throw new IllegalArgumentException("manifest repetitions are incomplete: " + logical);
+    /** Scenarios by suite and exact name, each suite loaded once. */
+    private static final class ScenarioIndex {
+        private final Map<String, Map<String, Scenario>> suites = new HashMap<>();
+
+        Scenario get(String suite, String name) throws IOException {
+            Map<String, Scenario> scenarios = suites.get(suite);
+            if (scenarios == null) {
+                scenarios = new HashMap<>();
+                for (Scenario scenario : Suites.load(suite)) {
+                    scenarios.put(scenario.getName(), scenario);
                 }
+                suites.put(suite, scenarios);
             }
-        }
-
-        List<Case> logicalCases = new ArrayList<>();
-        Set<String> seenLogical = new HashSet<>();
-        for (Case current : cases) {
-            String key = current.route.getId() + "/" + current.profile;
-            if (seenLogical.add(key)) {
-                logicalCases.add(current);
+            Scenario scenario = scenarios.get(name);
+            if (scenario == null) {
+                throw new IllegalArgumentException("suite " + suite + " has no scenario named '" + name + "'");
             }
+            return scenario;
         }
-        return new Plan(project, cases, logicalCases, repetitions, warmup, syntheticTime, diagnostic,
-            backend, aStarSession);
     }
 
     private static JsonObject executionMetadata(Plan plan, long routingStaticBuildNanos) {
         JsonObject metadata = new JsonObject();
-        metadata.addProperty("implementation", IMPLEMENTATION);
-        metadata.addProperty("algorithm", plan.algorithm);
+        metadata.addProperty("algorithm", plan.backend.id());
+        if (plan.backend == ScenarioRunner.Backend.ASTAR) {
+            metadata.addProperty("astar_session", plan.aStarSession.id());
+        }
+        metadata.addProperty("diagnostic", plan.diagnostic);
+        metadata.addProperty("repetitions", plan.repetitions);
+        metadata.addProperty("warmup_scenarios", plan.warmup.size());
         JsonObject runtime = new JsonObject();
         runtime.addProperty("java_version", System.getProperty("java.version"));
         runtime.addProperty("java_vendor", System.getProperty("java.vendor"));
         runtime.addProperty("vm_name", System.getProperty("java.vm.name"));
         runtime.addProperty("vm_version", System.getProperty("java.vm.version"));
         runtime.addProperty("available_processors", Runtime.getRuntime().availableProcessors());
+        runtime.addProperty("max_heap_bytes", Runtime.getRuntime().maxMemory());
         metadata.add("runtime", runtime);
         JsonObject dependencies = new JsonObject();
         dependencies.add("shortest_path", dependency("benchmark.shortestPathCommit", "benchmark.shortestPathDirty"));
         dependencies.add("shortest_path_tooling", dependency("benchmark.toolingCommit", "benchmark.toolingDirty"));
         metadata.add("dependencies", dependencies);
-        metadata.addProperty("synthetic_benchmark_time", plan.syntheticBenchmarkTime);
         if (routingStaticBuildNanos > 0) {
             metadata.addProperty("routing_static_build_ms", routingStaticBuildNanos / 1_000_000L);
         }
-        JsonObject adapterArgs = new JsonObject();
-        adapterArgs.addProperty("diagnostic", plan.diagnostic);
-        adapterArgs.addProperty("algorithm", plan.algorithm);
-        if (plan.backend == ScenarioRunner.Backend.ASTAR) {
-            adapterArgs.addProperty("astar_session", plan.aStarSession.id());
-        }
-        metadata.add("adapter_args", adapterArgs);
         return metadata;
     }
 
@@ -283,114 +256,105 @@ public final class BenchmarkMain {
         return result;
     }
 
-    private static JsonObject execute(Case current, Plan plan,
-            Map<String, CompiledAccount> accounts,
-            Map<String, String> accountFailures, ScenarioRunner runner, boolean measured, String runId) {
-        CompiledAccount account = accounts.get(
-            accountKey(current.profile, current.route.isAllowTransports()));
-        String accountFailure = accountFailures.get(accountKey(current.profile, current.route.isAllowTransports()));
-        if (accountFailure != null) {
-            return measured ? failure(current, runId, plan.project, plan.algorithm, accountFailure) : null;
-        }
-        if (account == null) {
-            throw new IllegalStateException("no compiled account for " + current.profile);
+    /**
+     * Runs one case. The account is compiled before the timed search; {@code total_ns} is the search
+     * alone ({@link Observation#getTotalNanos()}).
+     */
+    private static JsonObject execute(Case current, Plan plan, ScenarioRunner runner, String runId) {
+        JsonObject row = baseObservation(current, runId);
+        CompiledAccount account;
+        try {
+            account = current.scenario.compile();
+        } catch (RuntimeException exception) {
+            return failure(row, "account: " + describe(exception));
         }
         try {
-            Observation observation = runner.run(current.scenario(), account, ScenarioRunner.Profiling.OFF);
-            if (!measured) {
-                return null;
-            }
+            Observation observation = runner.run(current.scenario, account, ScenarioRunner.Profiling.OFF);
             PathfinderResult result = observation.getResult();
-            AStarPathfinder aStar = observation.getAStar();
-            boolean reachable = observation.isReached();
-            Integer pathCost = observation.getCost();
-            long total = observation.getTotalNanos();
-            JsonObject row = baseObservation(current, runId, plan.project, plan.algorithm);
-            row.addProperty("reachable", reachable);
-            addNullable(row, "path_cost", pathCost);
-            row.addProperty("correctness", classify(current.expectedReachable, reachable));
-            row.addProperty("total_ns", total);
+            Observation.Assertion check = observation.check();
+            row.addProperty("outcome", Boolean.FALSE.equals(check.passed) ? "unexpected" : "ok");
+            row.addProperty("check", check.message == null ? "" : check.message);
+            row.addProperty("reachable", observation.isReached());
+            addNullable(row, "path_cost", observation.getCost());
+            row.addProperty("path_length", observation.getPathLength());
+            row.addProperty("total_ns", observation.getTotalNanos());
+            row.addProperty("termination_reason", result.getTerminationReason() == null
+                ? "" : result.getTerminationReason().name());
+            row.addProperty("failure", "");
             if (plan.diagnostic) {
-                row.addProperty("forward_search_ns", aStar == null
-                    ? result.getElapsedNanos() : aStar.getForwardSearchNanos());
-                row.addProperty("path_length", result.getPathSteps().size());
-                row.addProperty("states_popped", result.getNodesChecked());
-                row.addProperty("transports_checked", result.getTransportsChecked());
-                if (aStar != null) {
-                    AStarForwardSearch.Counters counters = aStar.getAStarStats();
-                    row.addProperty("account_prepare_ns",
-                        aStar.getAccountPrepareNanos() + aStar.getGraphPrepareNanos());
-                    row.addProperty("graph_prepare_ns", aStar.getGraphPrepareNanos());
-                    row.addProperty("reverse_search_ns", aStar.getReverseSearchNanos());
-                    row.addProperty("seed_table_ns", aStar.getHeuristicPrepareNanos());
-                    row.addProperty("heuristic_prepare_ns",
-                        aStar.getReverseSearchNanos() + aStar.getHeuristicPrepareNanos());
-                    row.addProperty("astar_session", runner.getAStarSession().id());
-                    row.addProperty("graph_reused", aStar.isGraphReused());
-                    row.addProperty("target_reused", aStar.isTargetReused());
-                    row.addProperty("unique_states_reached", counters.uniqueStatesReached());
-                    row.addProperty("pq_pushes", counters.pqPushes());
-                    row.addProperty("stale_entries", counters.staleEntries());
-                    row.addProperty("max_queue_size", counters.maxQueueSize());
-                    row.addProperty("walking_pq_pushes", counters.walkingPqPushes());
-                    row.addProperty("local_transport_pq_pushes", counters.localTransportPqPushes());
-                    row.addProperty("global_pq_pushes", counters.globalPqPushes());
-                    row.addProperty("banking_pq_pushes", counters.bankingPqPushes());
-                    row.addProperty("transport_candidates", counters.transportCandidates());
-                    row.addProperty("transport_relaxations", counters.transportRelaxations());
-                    row.addProperty("successful_transport_relaxations",
-                        counters.successfulTransportRelaxations());
-                    row.addProperty("initial_capability", counters.initialCapability());
-                    row.addProperty("normal_heuristic_enabled_at_start",
-                        counters.normalHeuristicEnabledAtStart());
-                    row.addProperty("restricted_heuristic_states", counters.restrictedHeuristicStates());
-                    row.addProperty("restricted_heuristic_zeroes", counters.restrictedHeuristicZeroes());
-                    row.addProperty("normal_heuristic_states", counters.normalHeuristicStates());
-                }
-            }
-            if (result.getTerminationReason() != null) {
-                row.addProperty("termination_reason", result.getTerminationReason().name());
+                addDiagnostics(row, observation, runner);
             }
             return row;
         } catch (RuntimeException exception) {
-            if (!measured) {
-                throw exception;
-            }
-            return failure(current, runId, plan.project, plan.algorithm,
-                exception.getClass().getName() + ": " + exception.getMessage());
+            return failure(row, describe(exception));
         }
     }
 
-    private static JsonObject failure(Case current, String runId, String project, String algorithm,
-            String reason) {
-        JsonObject row = baseObservation(current, runId, project, algorithm);
+    private static void addDiagnostics(JsonObject row, Observation observation, ScenarioRunner runner) {
+        PathfinderResult result = observation.getResult();
+        AStarPathfinder aStar = observation.getAStar();
+        row.addProperty("forward_search_ns", aStar == null ? result.getElapsedNanos() : aStar.getForwardSearchNanos());
+        row.addProperty("states_popped", result.getNodesChecked());
+        row.addProperty("transports_checked", result.getTransportsChecked());
+        if (aStar == null) {
+            return;
+        }
+        AStarForwardSearch.Counters counters = aStar.getAStarStats();
+        row.addProperty("account_prepare_ns", aStar.getAccountPrepareNanos() + aStar.getGraphPrepareNanos());
+        row.addProperty("graph_prepare_ns", aStar.getGraphPrepareNanos());
+        row.addProperty("reverse_search_ns", aStar.getReverseSearchNanos());
+        row.addProperty("seed_table_ns", aStar.getHeuristicPrepareNanos());
+        row.addProperty("heuristic_prepare_ns", aStar.getReverseSearchNanos() + aStar.getHeuristicPrepareNanos());
+        row.addProperty("astar_session", runner.getAStarSession().id());
+        row.addProperty("graph_reused", aStar.isGraphReused());
+        row.addProperty("target_reused", aStar.isTargetReused());
+        row.addProperty("unique_states_reached", counters.uniqueStatesReached());
+        row.addProperty("pq_pushes", counters.pqPushes());
+        row.addProperty("stale_entries", counters.staleEntries());
+        row.addProperty("max_queue_size", counters.maxQueueSize());
+        row.addProperty("walking_pq_pushes", counters.walkingPqPushes());
+        row.addProperty("local_transport_pq_pushes", counters.localTransportPqPushes());
+        row.addProperty("global_pq_pushes", counters.globalPqPushes());
+        row.addProperty("banking_pq_pushes", counters.bankingPqPushes());
+        row.addProperty("transport_candidates", counters.transportCandidates());
+        row.addProperty("transport_relaxations", counters.transportRelaxations());
+        row.addProperty("successful_transport_relaxations", counters.successfulTransportRelaxations());
+        row.addProperty("initial_capability", counters.initialCapability());
+        row.addProperty("normal_heuristic_enabled_at_start", counters.normalHeuristicEnabledAtStart());
+        row.addProperty("restricted_heuristic_states", counters.restrictedHeuristicStates());
+        row.addProperty("restricted_heuristic_zeroes", counters.restrictedHeuristicZeroes());
+        row.addProperty("normal_heuristic_states", counters.normalHeuristicStates());
+    }
+
+    private static String describe(RuntimeException exception) {
+        String message = exception.getMessage();
+        return exception.getClass().getName() + (message == null || message.isBlank() ? "" : ": " + message);
+    }
+
+    /** The query threw: no result fields, just why. */
+    private static JsonObject failure(JsonObject row, String reason) {
+        row.addProperty("outcome", "failed");
+        row.addProperty("check", "");
         row.add("reachable", JsonNull.INSTANCE);
         row.add("path_cost", JsonNull.INSTANCE);
-        row.addProperty("correctness", "harness_failure");
+        row.add("path_length", JsonNull.INSTANCE);
         row.add("total_ns", JsonNull.INSTANCE);
-        row.addProperty("failure_reason", reason == null || reason.isBlank() ? "unknown failure" : reason);
+        row.addProperty("termination_reason", "");
+        row.addProperty("failure", reason);
         return row;
     }
 
-    private static JsonObject baseObservation(Case current, String runId, String project,
-            String algorithm) {
+    private static JsonObject baseObservation(Case current, String runId) {
+        Scenario scenario = current.scenario;
         JsonObject row = new JsonObject();
-        row.addProperty("schema_version", 2);
-        row.addProperty("protocol_version", PROTOCOL_VERSION);
         row.addProperty("run_id", runId);
-        row.addProperty("project", project);
-        row.addProperty("implementation", IMPLEMENTATION);
-        row.addProperty("algorithm", algorithm);
-        row.addProperty("route_id", current.route.getId());
-        row.addProperty("route_name", current.route.getName());
-        row.addProperty("account_profile", current.profile);
+        row.addProperty("suite", current.suite);
+        row.addProperty("scenario", scenario.getName());
+        row.addProperty("category", scenario.getCategory());
+        row.addProperty("profile", scenario.getProfile().name());
         row.addProperty("repetition", current.repetition);
-        row.addProperty("expected_reachable", current.expectedReachable);
+        row.addProperty("expected_reachable", scenario.isExpectedReachable());
         return row;
-    }
-
-    private static String classify(boolean expectedReachable, boolean actualReachable) {
-        return expectedReachable == actualReachable ? "expected" : "reachability_mismatch";
     }
 
     private static void addNullable(JsonObject object, String field, Integer value) {
@@ -399,21 +363,6 @@ public final class BenchmarkMain {
         } else {
             object.addProperty(field, value);
         }
-    }
-
-    private static String accountKey(String profile, boolean allowTransports) {
-        return profile + ":" + allowTransports;
-    }
-
-    private static String caseKey(String route, String profile, int repetition) {
-        return route + "/" + profile + "/" + repetition;
-    }
-
-    private static JsonObject requiredObject(JsonObject object, String field) {
-        if (!object.has(field) || !object.get(field).isJsonObject()) {
-            throw new IllegalArgumentException("manifest field must be an object: " + field);
-        }
-        return object.getAsJsonObject(field);
     }
 
     private static JsonArray requiredArray(JsonObject object, String field) {
@@ -440,35 +389,13 @@ public final class BenchmarkMain {
         return object.get(field).getAsBoolean();
     }
 
-    private static int requirePositiveInt(JsonObject object, String field) {
-        int value = requireNonNegativeInt(object, field);
-        if (value < 1) {
-            throw new IllegalArgumentException("manifest field must be positive: " + field);
-        }
-        return value;
-    }
-
     private static int requireNonNegativeInt(JsonObject object, String field) {
-        long value = requireNonNegativeLong(object, field);
-        if (value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("manifest integer is too large: " + field);
-        }
-        return (int) value;
-    }
-
-    private static void requireInt(JsonObject object, String field, int expected) {
-        if (requireNonNegativeInt(object, field) != expected) {
-            throw new IllegalArgumentException("manifest " + field + " must be " + expected);
-        }
-    }
-
-    private static long requireNonNegativeLong(JsonObject object, String field) {
         if (!object.has(field) || !object.get(field).isJsonPrimitive()
                 || !object.get(field).getAsJsonPrimitive().isNumber()) {
             throw new IllegalArgumentException("manifest field must be an integer: " + field);
         }
         try {
-            long value = Long.parseLong(object.get(field).getAsString());
+            int value = Integer.parseInt(object.get(field).getAsString());
             if (value < 0) {
                 throw new IllegalArgumentException("manifest field must be non-negative: " + field);
             }
@@ -479,50 +406,33 @@ public final class BenchmarkMain {
     }
 
     static final class Plan {
-        final String project;
         final List<Case> cases;
-        final List<Case> logicalCases;
+        final List<Scenario> warmup;
         final int repetitions;
-        final boolean warmup;
-        final long syntheticBenchmarkTime;
         final boolean diagnostic;
         final ScenarioRunner.Backend backend;
         final ScenarioRunner.AStarSession aStarSession;
-        /** The backend's manifest name: {@code legacy} or {@code astar}. */
-        final String algorithm;
 
-        Plan(String project, List<Case> cases, List<Case> logicalCases,
-                int repetitions, boolean warmup, long syntheticBenchmarkTime, boolean diagnostic,
+        Plan(List<Case> cases, List<Scenario> warmup, int repetitions, boolean diagnostic,
                 ScenarioRunner.Backend backend, ScenarioRunner.AStarSession aStarSession) {
-            this.project = project;
             this.cases = List.copyOf(cases);
-            this.logicalCases = List.copyOf(logicalCases);
+            this.warmup = List.copyOf(warmup);
             this.repetitions = repetitions;
-            this.warmup = warmup;
-            this.syntheticBenchmarkTime = syntheticBenchmarkTime;
             this.diagnostic = diagnostic;
             this.backend = backend;
             this.aStarSession = aStarSession;
-            this.algorithm = backend.id();
         }
     }
 
     static final class Case {
-        final Route route;
-        final String profile;
+        final String suite;
+        final Scenario scenario;
         final int repetition;
-        final boolean expectedReachable;
 
-        Case(Route route, String profile, int repetition, boolean expectedReachable) {
-            this.route = route;
-            this.profile = profile;
+        Case(String suite, Scenario scenario, int repetition) {
+            this.suite = suite;
+            this.scenario = scenario;
             this.repetition = repetition;
-            this.expectedReachable = expectedReachable;
-        }
-
-        /** The {@code canonical} suite scenario {@code <route id>/<profile>}. */
-        Scenario scenario() {
-            return route.scenario(profile).build();
         }
     }
 
@@ -539,9 +449,6 @@ public final class BenchmarkMain {
             Path manifest = null;
             Path output = null;
             for (int i = 0; i < args.length; i++) {
-                if (args[i].equals("--corpus")) {
-                    throw new IllegalArgumentException("--corpus is gone: the routes are this tooling checkout's corpus/");
-                }
                 if (i + 1 >= args.length) {
                     throw new IllegalArgumentException("missing value for " + args[i]);
                 }
