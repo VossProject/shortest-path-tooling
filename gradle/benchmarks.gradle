@@ -1,7 +1,7 @@
-// --- Canonical corpus benchmarks ---
+// --- Benchmarks ---
 //
 // The canonical routes are this checkout's corpus/, like the canonical accounts are its accounts/:
-// tests, benchmarkCanonical and route all read them there (corpus.dir).
+// tests, benchmark and route all read them there (corpus.dir).
 def corpusDir = rootProject.file('corpus')
 
 def git = { File directory, List<String> arguments ->
@@ -28,11 +28,11 @@ tasks.named('test') {
     systemProperty 'corpus.dir', corpusDir.absolutePath
 }
 
-// Runs the case list of a shortest-path-benchmarks manifest in one JVM and writes the
-// protocol-v1 result envelope. Arguments are passed with --args by the benchmarks adapter.
-tasks.register('benchmarkCanonical', JavaExec) {
+// Runs the scenarios of a benchmark manifest (format 2: suite and scenario names) in one JVM and
+// writes their results. collisionlab/osrs-benchmarks passes the arguments with --args.
+tasks.register('benchmark', JavaExec) {
     group = 'verification'
-    description = 'Runs the exact resolved canonical manifest in one Java process.'
+    description = 'Runs a benchmark manifest\'s scenarios in one Java process: --args="--manifest M --output OUT".'
     dependsOn 'testClasses'
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'shortestpath.benchmark.BenchmarkMain'

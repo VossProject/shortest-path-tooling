@@ -127,7 +127,7 @@ land in the Gradle log — usable when the Var Inspector panel can't copy.
 | `scripts/collision_zip.py` | Shared reader library for `collision-map.zip` (imported by other scripts). |
 | `scripts/analyse_dashboard_runs.py` | Compare two sets of dashboard `report.json` files, per-route deltas. |
 | `scripts/import_issues.py` | Sync upstream Skretzo/shortest-path issues/PRs into local datasets. |
-| `scripts/benchmark_smoke.py` | Runs `benchmarkCanonical` as shortest-path-benchmarks does and checks its output (in CI). Changing the adapter's arguments or output means updating shortest-path-benchmarks too. |
+| `scripts/benchmark_smoke.py` | Runs `benchmark` as collisionlab/osrs-benchmarks does and checks its output (in CI). Changing its arguments or output means updating osrs-benchmarks too. |
 
 ### Submodule scripts (`shortest-path/scripts/`)
 
