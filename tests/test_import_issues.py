@@ -801,6 +801,130 @@ def test_check_feature_size_large_clean(tmp_path, capsys):
     assert "check: clean" in capsys.readouterr().out
 
 
+# --- WARN tier: scenario_rows names deferred in the working dataset -----
+
+WORKING_CSV_HEADER = (
+    "name,category,start_x,start_y,start_plane,x,y,plane,preset,"
+    "inventory,equipment,bank,varbits,varplayers,skill_levels,"
+    "config_overrides,expected_length,minimum_length,expect_reachable,"
+    "quests")
+
+
+def make_working_csv(tmp_path, names):
+    """Write a working-dataset ``scenarios.csv`` holding one row per name.
+
+    Mirrors the real file's shape: the header line, a ``#`` comment
+    line, then one comma-free-name row per entry.  This is the second
+    index the check WARN tier reads — distinct from
+    ``make_scenarios_csv`` above, which writes the saved *index* JSON.
+    """
+    lines = [WORKING_CSV_HEADER, "# working replay dataset fixture"]
+    lines += [f"{name},routing-issue-1" + "," * 17 for name in names]
+    path = tmp_path / "scenarios.csv"
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_check_csv_only_name_warns_not_errors(tmp_path, capsys):
+    # A scenario_rows name absent from the committed index but present
+    # in the working scenarios.csv is a deferred-promotion ledger entry:
+    # WARN, counted in the summary, never a failure.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["ghost row"]})
+    make_scenarios_csv(tmp_path, [scenario_row()])
+    make_working_csv(tmp_path, ["ghost row"])
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "ghost row" in out
+    assert "1 warnings" in out
+
+
+def test_check_nowhere_name_stays_error(tmp_path, capsys):
+    # A name found in neither index nor working CSV stays an ERROR —
+    # the WARN tier must not mask the fail-closed classification.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["nowhere row"]})
+    make_working_csv(tmp_path, ["other row"])
+    rc = run_check(tmp_path)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "ERROR ISSUE-1.md" in out
+    assert "nowhere row" in out
+    assert "not a committed scenario" in out
+
+
+def test_check_index_membership_wins_over_csv(tmp_path, capsys):
+    # A name in BOTH the committed index and the working CSV resolves
+    # via the index — adjacency resolved, no WARN for it.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["alpha scenario"]})
+    make_scenarios_csv(tmp_path, [scenario_row()])
+    make_working_csv(tmp_path, ["alpha scenario"])
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN" not in out
+    assert "check: clean" in out
+
+
+def test_check_two_csv_only_names_both_warn_counted(tmp_path, capsys):
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["ghost a", "ghost b"]})
+    make_working_csv(tmp_path, ["ghost a", "ghost b"])
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.count("WARN ISSUE-1.md") == 2
+    assert "2 warnings" in out
+
+
+def test_check_absent_csv_degrades_to_error_only(tmp_path, capsys):
+    # No scenarios.csv in the output dir — the WARN tier is skipped and
+    # unmatched names stay ERRORs, identical to pre-tier behavior.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["ghost row"]})
+    rc = run_check(tmp_path)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "ERROR ISSUE-1.md" in out
+    assert "WARN" not in out
+
+
+def test_check_scenario_csv_flag_overrides_default(tmp_path, capsys):
+    # --scenario-csv points the WARN tier at a different CSV location.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["ghost row"]})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    make_working_csv(elsewhere, ["ghost row"])
+    index = make_scenarios_csv(tmp_path, [])
+    rc = ii.main(["check", "--output-dir", str(tmp_path),
+                  "--scenario-index", str(index),
+                  "--scenario-csv", str(elsewhere / "scenarios.csv")])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "ghost row" in out
+
+
+def test_check_warn_lines_precede_errors(tmp_path, capsys):
+    # With a mixed set the WARN lines still print (sorted-file order)
+    # before the ERROR lines, and only errors drive the exit code.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["csv row"]})
+    make_shadow(tmp_path, 2, status="triaged", body_text=PRD_BODY,
+                fm_extra={"scenario_rows": ["nowhere row"]})
+    make_working_csv(tmp_path, ["csv row"])
+    rc = run_check(tmp_path)
+    assert rc != 0
+    out = capsys.readouterr().out
+    warn_at = out.index("WARN ISSUE-1.md")
+    err_at = out.index("ERROR ISSUE-2.md")
+    assert warn_at < err_at
+
+
 # --- triage.residual — the carry-over ledger entries --------------------
 
 def test_check_residual_must_be_list(tmp_path, capsys):
