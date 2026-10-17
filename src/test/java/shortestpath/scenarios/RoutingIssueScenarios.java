@@ -1362,5 +1362,86 @@ final class RoutingIssueScenarios {
             .from(2996, 3377, 0).to(1751, 5133, 0)
             .profile(UNIT_TEST)
             .account(a -> a.inventory(ItemID.SPADE, 1));
+
+        suite.scenario("Viyeldi caves (#677) Kharazi jungle approach reaches cave", "routing-issue-677")
+            .from(2795, 2945, 0).to(2399, 4673, 0)
+            .profile(UNIT_TEST)
+            .account(a -> a
+                .inventory(ItemID.MACHETTE, 1)
+                .inventory(ItemID.RUNE_AXE, 1));
+
+        suite.scenario("Ruins of Camdozaal (#678) Ice Mountain entrance reaches ruins", "routing-issue-678")
+            .from(2998, 3494, 0).to(2952, 5762, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Varlamore stalker den (#679) surface cave reaches den", "routing-issue-679")
+            .from(1296, 3375, 0).to(1322, 9731, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Barrows tunnels (#680) surface cannot enter chest room", "routing-issue-680")
+            .from(3593, 3272, 0).to(3538, 9667, 0)
+            .profile(UNIT_TEST)
+            .expectUnreachable();
+
+        suite.scenario("Motherlode Mine (#681) main chamber cannot enter north tunnels", "routing-issue-681")
+            .from(3060, 9766, 0).to(3745, 5646, 0)
+            .profile(UNIT_TEST)
+            .expectUnreachable();
+
+        suite.scenario("Vardorvis arena (#682) Stranglewood approach cannot enter arena", "routing-issue-682")
+            .from(1133, 3395, 0).to(1124, 3408, 0)
+            .profile(UNIT_TEST)
+            .expectUnreachable();
+
+        suite.scenario("Waterbirth dungeon (#683) island cannot reach crevice pocket", "routing-issue-683")
+            .from(2544, 3761, 0).to(1834, 4390, 3)
+            .profile(UNIT_TEST)
+            .expectUnreachable();
+
+        suite.scenario("Hueycoatl arena (#684) slope descends into pocket", "routing-issue-684")
+            .from(1524, 3290, 0).to(1512, 3269, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Kourend Castle (#685) staircases reach second floor", "routing-issue-685")
+            .from(1618, 3680, 0).to(1616, 3656, 2)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Alchemical Society (#686) stairs reach basement", "routing-issue-686")
+            .from(1388, 2918, 0).to(1388, 9310, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Gauntlet lobby (#687) Prifddinas portal reaches lobby", "routing-issue-687")
+            .from(3228, 6116, 0).to(3027, 6118, 1)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Shayzien enclosed room (#690) street cannot enter room", "routing-issue-690")
+            .from(1500, 3613, 0).to(1503, 3612, 0)
+            .profile(UNIT_TEST)
+            .expectUnreachable();
+
+        suite.scenario("Moons of Peril (#692) Neypotzli approach reaches entrance pocket", "routing-issue-692")
+            .from(1436, 3128, 0).to(1436, 3129, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Jalsavrah (#671) antechamber exits to Sophanem", "routing-issue-671")
+            .from(1934, 4428, 3).to(3288, 2801, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Soul rift (#693) Abyss rift exits to Kourend altar", "routing-issue-693")
+            .from(3050, 4829, 0).to(1816, 3856, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Ape Atoll dungeon (#706) mining guild route reaches quest step", "routing-issue-706")
+            .from(3020, 3345, 0).to(2773, 9144, 0)
+            .profile(UNIT_TEST);
+
+        suite.scenario("Avoid wilderness (#744) still routes to Abyss via Wilderness", "routing-issue-744")
+            .from(3160, 3486, 0).to(3035, 4852, 0)
+            .profile(UNIT_TEST)
+            .settings(s -> s.setAvoidWilderness(true));
+
+        suite.scenario("Abyss approach (#744) Zamorak teleport reaches Abyss control", "routing-control")
+            .from(3160, 3486, 0).to(3035, 4852, 0)
+            .profile(UNIT_TEST);
     }
 }
