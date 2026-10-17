@@ -1357,5 +1357,10 @@ final class RoutingIssueScenarios {
         suite.scenario("Inner Mor Ul Rek (#675) city approach reaches inner pocket", "routing-issue-675")
             .from(2480, 5175, 0).to(2501, 5059, 0)
             .profile(UNIT_TEST);
+
+        suite.scenario("Giant Mole lair (#676) Falador Park mole hill digs in", "routing-issue-676")
+            .from(2996, 3377, 0).to(1751, 5133, 0)
+            .profile(UNIT_TEST)
+            .account(a -> a.inventory(ItemID.SPADE, 1));
     }
 }
