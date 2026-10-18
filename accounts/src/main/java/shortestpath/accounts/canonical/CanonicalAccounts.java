@@ -60,7 +60,7 @@ public final class CanonicalAccounts {
             .diaries(Diary.Tier.HARD)
             .poh(new Poh(Poh.Location.RIMMINGTON, false, false, false, Poh.JewelleryBox.FANCY,
                 true, true, true, true, PROGRESS_PORTALS))
-            .unlock(Unlock.values())
+            .unlock(Unlock.reported())
             .plantedSpiritTrees(PlantedSpiritTree.FARMING_GUILD)
             .build();
     }
@@ -70,7 +70,7 @@ public final class CanonicalAccounts {
             .diaries(Diary.Tier.HARD).diary(Diary.LUMBRIDGE_DRAYNOR, Diary.Tier.ELITE)
             .poh(new Poh(Poh.Location.RIMMINGTON, true, true, true, Poh.JewelleryBox.ORNATE,
                 true, true, true, true, null))
-            .unlock(Unlock.values())
+            .unlock(Unlock.reported())
             .plantedSpiritTrees(PlantedSpiritTree.FARMING_GUILD, PlantedSpiritTree.PORT_SARIM)
             .questPoints(327)
             .build();
@@ -81,7 +81,7 @@ public final class CanonicalAccounts {
             .diaries(Diary.Tier.ELITE)
             .poh(new Poh(Poh.Location.RIMMINGTON, true, true, true, Poh.JewelleryBox.ORNATE,
                 true, true, true, true, null))
-            .unlock(Unlock.values())
+            .unlock(Unlock.reported())
             .plantedSpiritTrees(PlantedSpiritTree.values())
             .questPoints(327)
             .totalLevel(2376)

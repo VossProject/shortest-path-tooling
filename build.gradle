@@ -19,7 +19,7 @@ def runeLiteVersion = 'latest.release'
 dependencies {
     // Plugin main sources via composite build (shortest-path is included in settings.gradle)
     testImplementation 'shortestpath:shortest-path'
-    testImplementation project(':accounts')
+    testImplementation project(':routing')
 
     // RuneLite — needed directly because the plugin declares client as compileOnly
     testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
@@ -72,13 +72,11 @@ if (pluginHasSailing) {
 }
 
 // ConfigParityTest compares PluginSettings' defaults with the plugin's own test config, which stays
-// in shortest-path/src/test/java (no changes to the plugin build). TestWorldData is the shared
-// per-JVM fixture holder the harness tests draw the same world data from.
+// in shortest-path/src/test/java (no changes to the plugin build).
 compileTestJava.source fileTree(
     dir: new File(shortestPathProjectDir, 'src/test/java'),
     includes: [
         'shortestpath/TestShortestPathConfig.java',
-        'shortestpath/pathfinder/TestWorldData.java',
     ]
 )
 

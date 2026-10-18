@@ -19,7 +19,8 @@ around it.
 | `shortest-path/` | Git submodule (pinned commit). Plugin sources + data in `src/main/resources/` (`collision-map.zip`, `destinations/`, `transports/`, `leagues/`). |
 | `accounts/` | Gradle subproject: `Account` (an account as a player describes it: levels, quests, diaries, unlocks, items, house), `AccountCompiler` (the only place facts become the varbits/varplayers in a `ClientState`), `HeadlessClient` (a RuneLite `Client` answering from a `ClientState`), and the canonical profiles (`canonical/CanonicalAccounts`). |
 | `corpus/` | Canonical routes, and the JSON schemas of the standalone web planner (see `corpus/README.md`). |
-| `src/test/java/shortestpath/` | All other Java lives under *test* sources: `profiles/` (every named profile, `PluginSettings`, the account's pathfinder config), `scenarios/` (scenario suites), `dashboard/` (site generator), `benchmark/` (benchmark adapter), `route/` (`route` CLI); model in `docs/scenarios.md`, `dump/` (cache dumpers), `pathfinder/` (profiling). |
+| `routing/` | Shared headless routing library: named profiles, `PluginSettings`, the account's pathfinder config and lazy plugin resource loading. Used by tooling and external services. |
+| `src/test/java/shortestpath/` | Test-only tooling: `profiles/` (corpus JSON loading), `scenarios/` (scenario suites), `dashboard/` (site generator), `benchmark/` (benchmark adapter), `route/` (`route` CLI); model in `docs/scenarios.md`, `dump/` (cache dumpers), `pathfinder/` (profiling). |
 | `src/test/resources/` | Dashboard web assets, scenario data + expected lengths under `scenarios/`, region TSVs. |
 | `gradle/` | Task definitions: `dashboards.gradle`, `cache-dumpers.gradle`. |
 | `scripts/` | Python orchestration (see Scripts map below). |
@@ -41,6 +42,7 @@ around it.
 
 ```bash
 ./gradlew compileTestJava          # compile gate (what CI runs)
+./gradlew :routing:test            # shared profiles and headless account setup
 ./gradlew test                     # JUnit suite incl. dashboard scenarios (8g heap configured)
 ./gradlew dashboard                # build dashboard → build/reports/pathfinder-dashboard
 python -m http.server --directory build/reports/pathfinder-dashboard 8000
@@ -160,6 +162,7 @@ belong to the submodule's branch/PR flow, not this repo.
   `TestShortestPathConfig.java` straight from `shortest-path/src/test/java`
   into `compileTestJava` (`ConfigParityTest` compares defaults with it).
 - Run submodule tests with `./gradlew -p shortest-path test`.
+- Main sources in `routing/` must never depend on plugin test sources.
 
 ## Upstream PR workflow
 
