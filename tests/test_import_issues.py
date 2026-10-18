@@ -2420,13 +2420,20 @@ def test_status_reconcile_refused_self_loop(tmp_path, capsys):
 def test_close_refuses_malformed_plans(tmp_path, monkeypatch, capsys):
     # The plan file is untrusted input: a malformed top level or any
     # malformed entry must fail the run BEFORE a single gh call — one
-    # bad entry poisons the whole plan, nothing partial executes.
+    # bad entry poisons the whole plan, nothing partial executes.  The
+    # fakes return benign values so an accepted entry proceeds to real
+    # gh calls — `gh_calls == []` at the end is what proves the refusal
+    # preceded every upstream call.
     make_shadow(tmp_path, 504)
     gh_calls = []
     monkeypatch.setattr(
-        ii, "gh_json", lambda args: gh_calls.append(list(args)))
+        ii, "gh_json",
+        lambda args: gh_calls.append(list(args))
+        or {"state": "OPEN", "stateReason": None})
     monkeypatch.setattr(
-        ii, "gh_run", lambda args: gh_calls.append(list(args)))
+        ii, "gh_run",
+        lambda args: gh_calls.append(list(args))
+        or ii.subprocess.CompletedProcess(["gh", *args], 0))
     bad_plans = [
         "not a dict at all",
         {"entries": "not a list"},
@@ -2438,6 +2445,21 @@ def test_close_refuses_malformed_plans(tmp_path, monkeypatch, capsys):
         {"entries": [{"issue": 504, "comment": 12}]},
         {"entries": [{"issue": 504, "comment": "ok"},
                      {"issue": "bad", "comment": "x"}]},  # one bad poisons all
+        # Field-shape defenses (WR-05): every field feeding gh argv or
+        # shadow frontmatter is validated up front.
+        {"entries": [{**replay_entry(504), "issue": 0}]},
+        {"entries": [{**replay_entry(504), "issue": -5}]},
+        {"entries": [{**replay_entry(504), "issue": True}]},
+        {"entries": [{**replay_entry(504), "evidence_rows": "x"}]},
+        {"entries": [{**replay_entry(504), "evidence_rows": [1]}]},
+        {"entries": [{**replay_entry(504), "fix_pr": {"x": 1}}]},
+        {"entries": [{**replay_entry(504), "fix_commit": 12}]},
+        {"entries": [{**replay_entry(504), "kind": "bogus"}]},
+        {"entries": [{**replay_entry(504), "reason": "not_planned"}]},
+        {"entries": [{k: v for k, v in replay_entry(504).items()
+                      if k != "kind"}]},                 # kind required
+        {"entries": [{k: v for k, v in replay_entry(504).items()
+                      if k != "reason"}]},               # reason required
     ]
     for i, bad in enumerate(bad_plans):
         path = tmp_path / f"bad-{i}.json"
