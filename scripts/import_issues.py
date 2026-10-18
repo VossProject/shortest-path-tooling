@@ -1558,10 +1558,41 @@ def cmd_close(args: argparse.Namespace) -> int:
             print(f"ERROR {args.plan}: entry[{i}].issue is not an "
                   "issue number", file=sys.stderr)
             malformed = True
+        elif n <= 0:
+            print(f"ERROR {args.plan}: entry[{i}].issue must be "
+                  "positive", file=sys.stderr)
+            malformed = True
         comment = entry.get("comment")
         if not isinstance(comment, str) or not comment.strip():
             print(f"ERROR {args.plan}: entry[{i}].comment is missing "
                   "or empty", file=sys.stderr)
+            malformed = True
+        # evidence_rows feeds the write-back merge's dataset_rows — a
+        # hand-edited string must never reach it.
+        evidence_rows = entry.get("evidence_rows")
+        if evidence_rows is not None and (
+                not isinstance(evidence_rows, list)
+                or not all(isinstance(r, str) for r in evidence_rows)):
+            print(f"ERROR {args.plan}: entry[{i}].evidence_rows must "
+                  "be a list of strings", file=sys.stderr)
+            malformed = True
+        for field in ("fix_pr", "fix_commit"):
+            if (entry.get(field) is not None
+                    and not isinstance(entry.get(field), str)):
+                print(f"ERROR {args.plan}: entry[{i}].{field} must be "
+                      "a string or null", file=sys.stderr)
+                malformed = True
+        # kind and reason are required plan fields — the emitted schema
+        # always carries both.  `-r completed` stays literal at the
+        # close argv: widening `reason` and plumbing it through is an
+        # explicit later extension, not an implicit acceptance here.
+        if entry.get("kind") not in ("replay", "manual"):
+            print(f"ERROR {args.plan}: entry[{i}].kind must be one of "
+                  "replay/manual", file=sys.stderr)
+            malformed = True
+        if entry.get("reason") != "completed":
+            print(f"ERROR {args.plan}: entry[{i}].reason must be "
+                  "'completed'", file=sys.stderr)
             malformed = True
     if malformed:
         return 1
