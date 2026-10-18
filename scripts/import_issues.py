@@ -890,7 +890,12 @@ def transition_status(path: Path, new_status: str, note: str = "",
               # misrecorded the upstream outcome).  A wontfix -> wontfix
               # self-loop stays refused for the same reason closed ->
               # closed is.
-    elif new_status not in TRANSITIONS.get(old, frozenset()):
+    elif new_status not in TRANSITIONS.get(
+            # `status` is untrusted YAML — a non-scalar value (a list is
+            # unhashable) must fail closed to the invalid-transition
+            # error, never TypeError on the map lookup.  `old` itself is
+            # kept verbatim for the error/event text.
+            old if isinstance(old, str) else None, frozenset()):
         return False, f"{path.name}: invalid transition {old} -> {new_status}"
     now = now or utc_now_iso()
     event = f"status: {old} -> {new_status}"
@@ -899,7 +904,11 @@ def transition_status(path: Path, new_status: str, note: str = "",
     fm["status"] = new_status
     if phase:
         fm["phase"] = phase
-    history = list(fm.get("history") or [])
+    # history is untrusted frontmatter — a scalar would TypeError and a
+    # string would splice per-character into the event log; anything
+    # that is not already a list normalizes to a fresh one.
+    raw_history = fm.get("history")
+    history = list(raw_history) if isinstance(raw_history, list) else []
     history.append({"at": now, "event": event,
                     "by": by or current_user()})
     fm["history"] = history
@@ -1243,8 +1252,14 @@ def record_verification(path: Path, *, command: str,
     fm, _body = load_shadow(path)
     if fm is None:
         return False, f"ERROR {path.name}: no readable frontmatter"
+    # scenario_rows is untrusted frontmatter — a scalar would TypeError
+    # and a string would explode per-character; a non-list degrades to
+    # empty (the replay branch then names the missing rows rather than
+    # iterating garbage, matching the lint_shadow shape rule).
+    stored_rows = fm.get("scenario_rows")
     rows = (list(dataset_rows) if dataset_rows is not None
-            else list(fm.get("scenario_rows") or []))
+            else (list(stored_rows) if isinstance(stored_rows, list)
+                  else []))
     if manual:
         if not evidence:
             return False, (f"ERROR {path.name}: --manual requires "

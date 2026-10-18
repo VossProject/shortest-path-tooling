@@ -497,6 +497,43 @@ def test_status_user_fallback_when_getuser_raises(tmp_path, monkeypatch):
     assert fm["history"][-1]["by"] == "unknown"
 
 
+def test_status_non_scalar_status_fails_closed(tmp_path, capsys):
+    # status: [triaged] is unhashable — the map lookup must degrade to
+    # the invalid-transition error, never TypeError mid-command.
+    path = make_shadow(tmp_path, 41, fm_extra={"status": ["triaged"]})
+    before = path.read_text()
+    rc = run_status(tmp_path, "41", "closed")
+    assert rc != 0
+    assert "invalid transition" in capsys.readouterr().err
+    assert path.read_text() == before
+
+
+def test_status_non_scalar_status_reconciles_upstream_closed(
+        tmp_path):
+    # A corrupt status is itself bookkeeping drift — on an upstream-
+    # closed file the reconcile hop must still correct it to closed.
+    path = make_shadow(tmp_path, 42,
+                       fm_extra={"status": ["triaged"],
+                                 "upstream_state": "closed",
+                                 "upstream_state_reason": "COMPLETED"})
+    rc = run_status(tmp_path, "42", "closed")
+    assert rc == 0
+    fm, _ = frontmatter_and_body(path)
+    assert fm["status"] == "closed"
+
+
+def test_status_malformed_history_normalized(tmp_path):
+    # history: 5 is not a list of events — a transition must normalize
+    # to a fresh log, not TypeError or splice a string per-character.
+    path = make_shadow(tmp_path, 43, status="reported",
+                       fm_extra={"history": 5})
+    rc = run_status(tmp_path, "43", "triaged")
+    assert rc == 0
+    fm, _ = frontmatter_and_body(path)
+    assert isinstance(fm["history"], list)
+    assert fm["history"][-1]["event"] == "status: reported -> triaged"
+
+
 # --------------------------------------------------------------------------
 # check subcommand — shadow lint + scenario cross-reference
 # --------------------------------------------------------------------------
@@ -1760,6 +1797,21 @@ def test_verification_only_from_fixed_states(tmp_path):
                     "--report", str(report))
     assert rc != 0
     assert path.read_text() == before
+
+
+@pytest.mark.parametrize("rows", [5, "alpha scenario"])
+def test_verification_non_list_scenario_rows_no_crash(
+        tmp_path, capsys, rows):
+    # scenario_rows is untrusted frontmatter — a scalar must not
+    # TypeError inside list() and a string must not iterate
+    # per-character; both degrade to the named no-rows error.
+    make_shadow(tmp_path, 13, status="fixed",
+                fm_extra={"scenario_rows": rows})
+    report = make_report(tmp_path)
+    rc = run_verify(tmp_path, 13, "--command", "cmd",
+                    "--report", str(report))
+    assert rc != 0
+    assert "no scenario_rows" in capsys.readouterr().err
 
 
 def test_verification_from_in_progress_and_reopened(tmp_path):
