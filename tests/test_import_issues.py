@@ -993,6 +993,49 @@ def test_check_data_row_named_name_is_not_dropped(tmp_path, capsys):
     assert "(1 warning)" in out
 
 
+def test_scenario_index_skips_malformed_records(tmp_path):
+    # A record lacking a name or category — or carrying non-string
+    # shapes — is skipped rather than crashing the index build.
+    index = tmp_path / "scenario-index.json"
+    index.write_text(json.dumps({"routing-issues": [
+        {"name": "good row", "category": "collision-issue-1"},
+        {"category": "collision-issue-1"},            # no name
+        {"name": "orphan row"},                       # no category
+        {"name": "null cat", "category": None},
+        {"name": 12, "category": "collision-issue-1"},
+        "bare string",
+    ]}))
+    assert ii.scenario_index(index) == {
+        "good row": "collision-issue-1"}
+
+
+def test_scenario_index_unparseable_named_error(tmp_path):
+    # A truncated or hand-edited index file must fail with a named
+    # error like the report parsers, not a raw JSONDecodeError or a
+    # bare AttributeError on a non-object payload.
+    index = tmp_path / "scenario-index.json"
+    index.write_text("{ not json")
+    with pytest.raises(SystemExit) as exc:
+        ii.scenario_index(index)
+    assert "cannot parse" in str(exc.value)
+    index.write_text(json.dumps(["not", "an", "object"]))
+    with pytest.raises(SystemExit) as exc:
+        ii.scenario_index(index)
+    assert "not a suite-name object" in str(exc.value)
+
+
+def test_check_malformed_scenario_index_named_error(tmp_path):
+    # cmd_check surfaces the same named error instead of a traceback
+    # when --scenario-index points at an unparseable file.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY)
+    index = tmp_path / "scenario-index.json"
+    index.write_text("{ not json")
+    with pytest.raises(SystemExit) as exc:
+        ii.main(["check", "--output-dir", str(tmp_path),
+                 "--scenario-index", str(index)])
+    assert "cannot parse" in str(exc.value)
+
+
 # --- WARN tier: upstream-closed consistency rule ------------------------
 
 def closed_upstream_extra(reason="COMPLETED"):

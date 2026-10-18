@@ -1076,7 +1076,11 @@ def scenario_index(index_file: Optional[Path] = None) -> Dict[str, str]:
     otherwise runs ``./gradlew -q scenarioIndex`` in this repository.
     """
     if index_file is not None:
-        text = index_file.read_text()
+        try:
+            text = index_file.read_text()
+        except OSError as e:
+            raise SystemExit(f"cannot read scenario index "
+                             f"{index_file}: {e}") from None
     else:
         proc = subprocess.run(["./gradlew", "-q", "scenarioIndex"], cwd=REPO,
                               capture_output=True, text=True,
@@ -1085,10 +1089,27 @@ def scenario_index(index_file: Optional[Path] = None) -> Dict[str, str]:
             raise SystemExit("./gradlew scenarioIndex failed: "
                              + (proc.stderr or "").strip()[-500:])
         text = proc.stdout.strip().splitlines()[-1]
+    # The saved index file is still an input — a truncated or
+    # hand-edited dump gets the same named-error treatment the report
+    # parsers give, never a raw KeyError/TypeError/JSONDecodeError.
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"cannot parse scenario index: {e}") from None
+    if not isinstance(data, dict):
+        raise SystemExit("scenario index is not a suite-name object")
     index: Dict[str, str] = {}
-    for scenarios in json.loads(text).values():
+    for scenarios in data.values():
+        if not isinstance(scenarios, list):
+            continue
         for scenario in scenarios:
-            index[scenario["name"]] = scenario["category"]
+            if not isinstance(scenario, dict):
+                continue
+            name = scenario.get("name")
+            category = scenario.get("category")
+            if not isinstance(name, str) or not isinstance(category, str):
+                continue
+            index[name] = category
     return index
 
 
