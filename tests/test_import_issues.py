@@ -956,6 +956,108 @@ def test_check_data_row_named_name_is_not_dropped(tmp_path, capsys):
     assert "(1 warning)" in out
 
 
+# --- WARN tier: upstream-closed consistency rule ------------------------
+
+def closed_upstream_extra(reason="COMPLETED"):
+    """``fm_extra`` fragment marking a shadow's upstream side closed."""
+    return {"upstream_state": "closed", "upstream_state_reason": reason}
+
+
+def test_check_closed_upstream_nonterminal_status_warns(tmp_path, capsys):
+    # Upstream closed but the local status is a real maintainer state —
+    # exactly the drift the ledger exists to surface.  A WARN names the
+    # reason, the actual status, and the reconcile command; it never
+    # gates the exit code.
+    make_shadow(tmp_path, 1, status="in_progress", body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra())
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "upstream_state closed (COMPLETED)" in out
+    assert "'in_progress'" in out
+    assert "status 1 closed" in out
+    assert "(1 warning)" in out
+
+
+def test_check_closed_upstream_reported_stays_silent(tmp_path, capsys):
+    # `reported` on a closed-upstream file is the designed deferred
+    # bookkeeping lag, not drift — the scoped rule must not fire on it.
+    make_shadow(tmp_path, 1, status="reported",
+                fm_extra=closed_upstream_extra())
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "upstream_state closed" not in out
+    assert "WARN" not in out
+
+
+def test_check_closed_upstream_terminal_stays_silent(tmp_path, capsys):
+    # Terminal agreement needs no nudge — closed/wontfix/duplicate on a
+    # closed-upstream file are already reconciled.
+    make_shadow(tmp_path, 1, status="closed", body_text=PRD_BODY,
+                fm_extra={**closed_upstream_extra(),
+                          "verification": {"command": "c",
+                                           "dataset_rows": [],
+                                           "report": "r",
+                                           "fix_commit": None,
+                                           "fix_pr": None,
+                                           "verifier": "t",
+                                           "verified_at": "t"}})
+    make_shadow(tmp_path, 2, status="wontfix",
+                fm_extra=closed_upstream_extra("NOT_PLANNED"))
+    make_shadow(tmp_path, 3, status="duplicate",
+                fm_extra=closed_upstream_extra())
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "upstream_state closed" not in out
+    assert "check: clean" in out
+
+
+def test_check_closed_upstream_not_planned_suggests_wontfix(tmp_path, capsys):
+    # An upstream NOT_PLANNED close maps to the wontfix suggestion —
+    # the same conservative mapping upstream_closure_signal uses.
+    make_shadow(tmp_path, 1, status="triaged", body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra("NOT_PLANNED"))
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "upstream_state closed (NOT_PLANNED)" in out
+    assert "status 1 wontfix" in out
+
+
+def test_check_open_upstream_never_warns(tmp_path, capsys):
+    # The rule keys on upstream_state: closed — an open-upstream file
+    # with the same maintainer status emits nothing.
+    make_shadow(tmp_path, 1, status="in_progress", body_text=PRD_BODY)
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "upstream_state closed" not in out
+    assert "WARN" not in out
+
+
+def test_check_unknown_status_errors_not_warns(tmp_path, capsys):
+    # An unknown status is already a lint_shadow ERROR — the WARN rule
+    # must not double-report it, and WARN lines still precede ERRORs.
+    make_shadow(tmp_path, 1, status="bogus",
+                fm_extra=closed_upstream_extra())
+    make_shadow(tmp_path, 2, status="in_progress", body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra())
+    rc = run_check(tmp_path)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "ERROR ISSUE-1.md" in out
+    assert "not a known lifecycle state" in out
+    assert "WARN ISSUE-1.md" not in out
+    assert "WARN ISSUE-2.md" in out
+    warn_at = out.index("WARN ISSUE-2.md")
+    err_at = out.index("ERROR ISSUE-1.md")
+    assert warn_at < err_at
+
+
 # --- triage.residual — the carry-over ledger entries --------------------
 
 def test_check_residual_must_be_list(tmp_path, capsys):
