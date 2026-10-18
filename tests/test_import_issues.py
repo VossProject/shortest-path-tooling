@@ -1788,6 +1788,21 @@ def test_verification_manual_requires_evidence(tmp_path, capsys):
     assert path.read_text() == before
 
 
+def test_verification_evidence_requires_manual(tmp_path, capsys):
+    # --evidence is only consumed by the manual branch — without
+    # --manual it is silently ignored, so the combination is refused
+    # with a named error instead of falling into "--report required".
+    path = make_shadow(tmp_path, 14, status="fixed",
+                       fm_extra={"scenario_rows": ["alpha scenario"]})
+    before = path.read_text()
+    rc = run_verify(tmp_path, 14, "--command", "cmd",
+                    "--evidence", "junit: DashboardTest#testFoo")
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "--evidence" in err and "--manual" in err
+    assert path.read_text() == before
+
+
 def test_verification_only_from_fixed_states(tmp_path):
     path = make_shadow(tmp_path, 7, status="reported",
                        fm_extra={"scenario_rows": ["alpha scenario"]})

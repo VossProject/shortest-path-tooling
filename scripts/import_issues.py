@@ -1316,6 +1316,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print("ERROR --manual and --report are mutually exclusive "
               "(--evidence carries the manual ref)", file=sys.stderr)
         return 1
+    if args.evidence is not None and not args.manual:
+        # --evidence is only consumed by the manual branch — name the
+        # real problem instead of silently ignoring it (or failing
+        # later on "--report required").
+        print("ERROR --evidence requires --manual (the replay path "
+              "ignores it)", file=sys.stderr)
+        return 1
     rows = None
     if args.dataset_rows:
         rows = [r.strip() for r in args.dataset_rows.split(",")
