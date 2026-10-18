@@ -1028,6 +1028,62 @@ def test_check_closed_upstream_not_planned_suggests_wontfix(tmp_path, capsys):
     assert "status 1 wontfix" in out
 
 
+@pytest.mark.parametrize(
+    "status", ["needs_info", "triaged", "phase_linked", "in_progress",
+               "fixed", "verified", "blocked", "reopened"])
+def test_check_not_planned_wontfix_suggestion_is_reachable(
+        tmp_path, capsys, status):
+    # The WARN prescribes `status <N> wontfix` — the command must
+    # actually succeed from every status the rule fires on, or the
+    # remediation is a dead end.  A wontfix reconcile hop keyed on the
+    # upstream NOT_PLANNED reason legitimizes the bookkeeping correction
+    # the same way the closed hop does for COMPLETED.
+    make_shadow(tmp_path, 1, status=status, body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra("NOT_PLANNED"))
+    run_check(tmp_path)
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "status 1 wontfix" in out
+    assert run_status(tmp_path, "1", "wontfix") == 0
+    fm, _ = frontmatter_and_body(tmp_path / "ISSUE-1.md")
+    assert fm["status"] == "wontfix"
+    assert f"status: {status} -> wontfix" in [
+        h["event"] for h in fm["history"]]
+
+
+@pytest.mark.parametrize("status", ["closed", "duplicate"])
+def test_status_wontfix_reconcile_from_terminal(tmp_path, status):
+    # Upstream NOT_PLANNED makes even a terminal local status drift —
+    # closed/duplicate misrecorded the upstream outcome and must be
+    # correctable to wontfix in one hop.
+    path = make_shadow(tmp_path, 1, status=status, body_text=PRD_BODY,
+                       fm_extra=closed_upstream_extra("NOT_PLANNED"))
+    assert run_status(tmp_path, "1", "wontfix") == 0
+    fm, _ = frontmatter_and_body(path)
+    assert fm["status"] == "wontfix"
+
+
+def test_status_wontfix_reconcile_requires_not_planned(tmp_path):
+    # The wontfix reconcile hop keys on the upstream reason — a
+    # COMPLETED close maps to `closed`, and an open upstream has no
+    # drift to reconcile, so the strict map still applies.
+    make_shadow(tmp_path, 1, status="in_progress", body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra("COMPLETED"))
+    assert run_status(tmp_path, "1", "wontfix") != 0
+    make_shadow(tmp_path, 2, status="in_progress", body_text=PRD_BODY)
+    assert run_status(tmp_path, "2", "wontfix") != 0
+
+
+def test_status_wontfix_reconcile_self_loop_refused(tmp_path):
+    # wontfix -> wontfix fabricates history rather than correcting
+    # drift — refused even when the upstream reason is NOT_PLANNED.
+    path = make_shadow(tmp_path, 1, status="wontfix",
+                       fm_extra=closed_upstream_extra("NOT_PLANNED"))
+    before = path.read_text()
+    assert run_status(tmp_path, "1", "wontfix") != 0
+    assert path.read_text() == before
+
+
 def test_check_open_upstream_never_warns(tmp_path, capsys):
     # The rule keys on upstream_state: closed — an open-upstream file
     # with the same maintainer status emits nothing.

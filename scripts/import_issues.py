@@ -865,6 +865,17 @@ def transition_status(path: Path, new_status: str, note: str = "",
               # upstream-closed file; any non-closed source status may
               # correct bookkeeping drift.  A closed -> closed self-loop
               # fabricates history, so it stays refused below.
+    elif (new_status == "wontfix" and upstream_closed
+          and fm.get("upstream_state_reason") == "NOT_PLANNED"
+          and old != "wontfix"):
+        pass  # reconcile hop for upstream-declined issues — NOT_PLANNED
+              # maps to wontfix by the same convention warn_shadow and
+              # upstream_closure_signal emit, so the suggested
+              # remediation must be reachable from every status the WARN
+              # rule fires on (including a terminal local status that
+              # misrecorded the upstream outcome).  A wontfix -> wontfix
+              # self-loop stays refused for the same reason closed ->
+              # closed is.
     elif new_status not in TRANSITIONS.get(old, frozenset()):
         return False, f"{path.name}: invalid transition {old} -> {new_status}"
     now = now or utc_now_iso()
