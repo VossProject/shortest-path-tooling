@@ -1164,6 +1164,21 @@ def test_status_wontfix_reconcile_self_loop_refused(tmp_path):
     assert path.read_text() == before
 
 
+def test_check_closed_upstream_reasonless_no_none_render(
+        tmp_path, capsys):
+    # An upstream close carrying no stateReason must not render a bare
+    # "(None)" — the warn names the missing reason instead.
+    make_shadow(tmp_path, 1, status="in_progress", body_text=PRD_BODY,
+                fm_extra=closed_upstream_extra(None))
+    rc = run_check(tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARN ISSUE-1.md" in out
+    assert "(None)" not in out
+    assert "no stateReason" in out
+    assert "status 1 closed" in out
+
+
 def test_check_open_upstream_never_warns(tmp_path, capsys):
     # The rule keys on upstream_state: closed — an open-upstream file
     # with the same maintainer status emits nothing.

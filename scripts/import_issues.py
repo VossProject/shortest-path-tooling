@@ -1065,8 +1065,8 @@ def warn_shadow(path: Path, fm: Dict) -> List[str]:
     target = "wontfix" if reason == "NOT_PLANNED" else "closed"
     m = re.match(r"ISSUE-(\d+)$", path.stem)
     number = m.group(1) if m else "<n>"
-    return [f"upstream_state closed ({reason}) but status {status!r}"
-            f" — run: status {number} {target}"]
+    return [f"upstream_state closed ({reason or 'no stateReason'}) but "
+            f"status {status!r} — run: status {number} {target}"]
 
 
 def scenario_index(index_file: Optional[Path] = None) -> Dict[str, str]:
