@@ -1288,14 +1288,35 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
         triage = triage if isinstance(triage, dict) else {}
         if triage.get("verdict") != "fixed":
             continue
+        # Eligibility gate: `status: verified` alone is a forgeable
+        # label — the populated verification block is the artifact
+        # record_verification writes, so both halves must hold before an
+        # entry can emit.  Every refusal names the failed field and the
+        # remediation, and SKIPs print under --dry-run too (the scan
+        # precedes the dry-run early return below).
+        status = fm.get("status")
+        if status != "verified":
+            print(f"SKIP ISSUE-{number}: status {status!r} — expected "
+                  f"'verified'; run: status {number} <lifecycle-walk> "
+                  f"then verify {number} --command <cmd> --report <rpt> "
+                  "--fix-pr <N>")
+            continue
+        ver = fm.get("verification")
+        ver = ver if isinstance(ver, dict) else {}
+        missing = next(
+            (f for f in ("command", "report", "verified_at", "verifier")
+             if not ver.get(f)), None)
+        if missing is not None:
+            print(f"SKIP ISSUE-{number}: verification.{missing} empty — "
+                  f"run: verify {number} --command <cmd> --report <rpt> "
+                  "--fix-pr <N>")
+            continue
         rows = fm.get("scenario_rows")
         rows = list(rows) if isinstance(rows, list) else []
         expressible = triage.get("expressible")
         evidence = triage.get("evidence")
         evidence = evidence if isinstance(evidence, dict) else {}
         pin_sha = evidence.get("pin_sha")
-        ver = fm.get("verification")
-        ver = ver if isinstance(ver, dict) else {}
         fix_pr = ver.get("fix_pr")
         if not rows and expressible is not False:
             print(f"SKIP ISSUE-{number}: expressible is not false but "
@@ -1379,11 +1400,17 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
             "upstream_state_at_plan": "open",
             "reason": "completed",
         })
-        entry_pins.append((number, pin_sha))
-        if ver.get("command"):
+        # Frontmatter is untrusted: a list/dict pin_sha is unhashable and
+        # would TypeError the pin_values set below — coerce non-strings
+        # at append so the set never sees them.
+        entry_pins.append(
+            (number, pin_sha if (pin_sha is None
+                                 or isinstance(pin_sha, str))
+             else repr(pin_sha)))
+        if isinstance(ver.get("command"), str):
             commands.add(ver["command"])
         report_ref = ver.get("report") or evidence.get("report")
-        if report_ref:
+        if isinstance(report_ref, str):
             reports.add(report_ref)
     entries.sort(key=lambda e: e["issue"])
     if not entries:
@@ -1413,7 +1440,13 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
         "entries": entries,
     }
     plan_path = args.plan or (args.output_dir / "closure-plan.json")
-    plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+    try:
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+    except OSError as e:
+        print(f"ERROR {plan_path}: cannot write plan: {e}",
+              file=sys.stderr)
+        return 1
     print(f"wrote {plan_path.name}: {len(entries)} "
           f"{'entry' if len(entries) == 1 else 'entries'}")
     return 0
