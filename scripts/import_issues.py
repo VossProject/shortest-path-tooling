@@ -845,7 +845,13 @@ def transition_status(path: Path, new_status: str, note: str = "",
     if new_status == "phase_linked" and not phase:
         return False, "phase_linked requires --phase <dir>"
     old = fm.get("status")
-    if new_status not in TRANSITIONS.get(old, frozenset()):
+    upstream_closed = str(fm.get("upstream_state") or "").lower() == "closed"
+    if new_status == "closed" and upstream_closed and old != "closed":
+        pass  # reconcile hop — the upstream mirror is truth on an
+              # upstream-closed file; any non-closed source status may
+              # correct bookkeeping drift.  A closed -> closed self-loop
+              # fabricates history, so it stays refused below.
+    elif new_status not in TRANSITIONS.get(old, frozenset()):
         return False, f"{path.name}: invalid transition {old} -> {new_status}"
     now = now or utc_now_iso()
     event = f"status: {old} -> {new_status}"
@@ -1537,15 +1543,22 @@ def cmd_close(args: argparse.Namespace) -> int:
             failures += 1
             continue
         now = utc_now_iso()
+        # Fill-gap merge: a populated verify-event field is
+        # repudiation-proof — plan/entry values fill only empty slots.
+        ver = (fm.get("verification")
+               if isinstance(fm.get("verification"), dict) else {})
         fm["verification"] = {
-            "command": plan.get("command"),
-            "dataset_rows": entry.get("evidence_rows") or [],
-            "report": plan.get("report"),
-            "fix_commit": entry.get("fix_commit"),
-            "fix_pr": entry.get("fix_pr"),
-            "verifier": current_user(),
-            "verified_at": now,
+            "command": ver.get("command") or plan.get("command"),
+            "dataset_rows": (ver.get("dataset_rows")
+                             or entry.get("evidence_rows") or []),
+            "report": ver.get("report") or plan.get("report"),
+            "fix_commit": ver.get("fix_commit") or entry.get("fix_commit"),
+            "fix_pr": ver.get("fix_pr") or entry.get("fix_pr"),
+            "verifier": ver.get("verifier") or current_user(),
+            "verified_at": ver.get("verified_at") or now,
         }
+        fm["upstream_state"] = "closed"
+        fm["upstream_state_reason"] = "COMPLETED"
         # History is append-only — a re-run after a partial failure must
         # not pile up an identical event (same dedupe convention as the
         # upstream-closed sync signal).
@@ -1558,6 +1571,17 @@ def cmd_close(args: argparse.Namespace) -> int:
                         + yaml.safe_dump(fm, sort_keys=False,
                                          allow_unicode=True)
                         + "---" + body)
+        # The status hop goes through the audited transition path, which
+        # re-loads the file from disk — write first, hop second.  An
+        # already-terminal file has nothing to reconcile, so a close
+        # re-run stays a clean no-op instead of flagging a spurious
+        # invalid transition.
+        if fm.get("status") != "closed":
+            ok, msg = transition_status(path, "closed", by=current_user())
+            if not ok:
+                print(f"ERROR ISSUE-{n}: {msg}", file=sys.stderr)
+                failures += 1
+                continue
         print(f"ISSUE-{n}: closed upstream COMPLETED")
     return 1 if failures else 0
 
