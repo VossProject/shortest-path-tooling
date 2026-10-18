@@ -103,6 +103,10 @@ GH_TIMEOUT_SECONDS = 120
 GRADLE_TIMEOUT_SECONDS = 1800
 
 
+class GhTimeout(SystemExit):
+    """gh exceeded GH_TIMEOUT_SECONDS — batch must abort, never continue blind."""
+
+
 def gh_json(args: List[str]) -> Any:
     try:
         proc = subprocess.run(
@@ -111,10 +115,18 @@ def gh_json(args: List[str]) -> Any:
     except subprocess.TimeoutExpired:
         # A wedged gh (auth prompt, network stall) must not hang the
         # whole sync without a diagnostic.
-        raise SystemExit(
+        raise GhTimeout(
             f"gh {' '.join(args[:2])} timed out after "
             f"{GH_TIMEOUT_SECONDS}s") from None
-    return json.loads(proc.stdout)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(
+            f"gh {' '.join(args[:2])} failed: "
+            f"{(e.stderr or '').strip()}") from None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise SystemExit(
+            f"gh {' '.join(args[:2])} returned non-JSON output") from None
 
 
 def gh_run(args: List[str]) -> subprocess.CompletedProcess:
@@ -132,7 +144,7 @@ def gh_run(args: List[str]) -> subprocess.CompletedProcess:
     except subprocess.TimeoutExpired:
         # A wedged gh (auth prompt, network stall) must not hang the
         # whole run without a diagnostic.
-        raise SystemExit(
+        raise GhTimeout(
             f"gh {' '.join(args[:2])} timed out after "
             f"{GH_TIMEOUT_SECONDS}s") from None
     except subprocess.CalledProcessError as e:
@@ -1401,6 +1413,19 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_close_abort(n: int, exc: SystemExit) -> None:
+    """Named recovery line printed when a close batch aborts mid-run.
+
+    A close that cannot be confirmed (or a wedged gh) leaves upstream
+    state unknown — the batch stops rather than mutating while blind.
+    A closed-but-unconfirmed entry is skipped forever by the already-
+    CLOSED pre-check, so the line names the manual recovery path.
+    """
+    print(f"ERROR ISSUE-{n}: {exc.code} — aborting batch; re-run `sync` "
+          "(or transition the shadow manually) to reconcile",
+          file=sys.stderr)
+
+
 def cmd_close(args: argparse.Namespace) -> int:
     """Execute a closure plan against upstream issues.
 
@@ -1451,18 +1476,50 @@ def cmd_close(args: argparse.Namespace) -> int:
     for entry in sorted(entries, key=lambda e: e["issue"]):
         n = entry["issue"]
         comment = entry["comment"]
-        state = gh_json(["issue", "view", str(n), "--repo", UPSTREAM_REPO,
-                         "--json", "state,stateReason"])
+        try:
+            state = gh_json(["issue", "view", str(n), "--repo",
+                             UPSTREAM_REPO, "--json", "state,stateReason"])
+        except GhTimeout as exc:
+            _print_close_abort(n, exc)
+            return 1
+        except SystemExit as exc:
+            # Read-only pre-close check — flag the entry and keep going;
+            # under a systemic outage this is the cheap per-entry
+            # tripwire that prevents blind writes.
+            print(f"ERROR ISSUE-{n}: {exc.code}", file=sys.stderr)
+            failures += 1
+            continue
         if state.get("state") == "CLOSED":
             print(f"ISSUE-{n}: already closed upstream — skipped")
             continue
         if args.dry_run:
             print(f"would close ISSUE-{n}: {comment}")
             continue
-        gh_run(["issue", "close", str(n), "--repo", UPSTREAM_REPO,
-                "-c", comment, "-r", "completed"])
-        confirm = gh_json(["issue", "view", str(n), "--repo",
-                           UPSTREAM_REPO, "--json", "state,stateReason"])
+        try:
+            gh_run(["issue", "close", str(n), "--repo", UPSTREAM_REPO,
+                    "-c", comment, "-r", "completed"])
+        except GhTimeout as exc:
+            _print_close_abort(n, exc)
+            return 1
+        except SystemExit as exc:
+            # A "failed" close may have landed server-side — flag it for
+            # review but keep going; the remaining entries are
+            # independent.
+            print(f"ERROR ISSUE-{n}: {exc.code}", file=sys.stderr)
+            failures += 1
+            continue
+        try:
+            confirm = gh_json(["issue", "view", str(n), "--repo",
+                               UPSTREAM_REPO, "--json",
+                               "state,stateReason"])
+        except GhTimeout as exc:
+            _print_close_abort(n, exc)
+            return 1
+        except SystemExit as exc:
+            # A write that cannot be confirmed = mutating while blind —
+            # abort the whole batch, never continue to the next entry.
+            _print_close_abort(n, exc)
+            return 1
         if not (confirm.get("state") == "CLOSED"
                 and confirm.get("stateReason") == "COMPLETED"):
             print(f"ERROR ISSUE-{n}: close did not confirm — "
