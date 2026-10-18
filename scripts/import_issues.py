@@ -326,7 +326,12 @@ def build_frontmatter(issue: Dict, fix_candidates: List[Dict],
                     "verification"):
             if key in existing:
                 fm[key] = existing[key]
-        history = list(existing.get("history") or [])
+        # history is untrusted frontmatter — a non-list value (a string
+        # would carry over as per-character junk, a scalar would
+        # TypeError) normalizes to a fresh log rather than crashing or
+        # corrupting every downstream consumer.
+        raw_history = existing.get("history")
+        history = list(raw_history) if isinstance(raw_history, list) else []
         history.append({"at": now, "event": "re-synced",
                         "by": "import_issues.py"})
         fm["history"] = history
@@ -535,7 +540,13 @@ def upstream_closure_signal(fm: Dict, number: int) -> Optional[str]:
     reason = fm.get("upstream_state_reason")
     state = (fm.get("upstream_state") or "").lower()
     status = fm.get("status")
-    history = fm.setdefault("history", [])
+    # Shadow frontmatter is not a trusted schema: a non-list history
+    # (history: null returns None from setdefault, a string iterates
+    # per-character into h.get) normalizes to a fresh log instead of
+    # crashing mid-sync.
+    history = fm.get("history")
+    if not isinstance(history, list):
+        history = fm["history"] = []
     now = utc_now_iso()
     if state == "closed" and reason in ("NOT_PLANNED", "COMPLETED"):
         suggestion = "wontfix" if reason == "NOT_PLANNED" else "closed"
@@ -543,8 +554,11 @@ def upstream_closure_signal(fm: Dict, number: int) -> Optional[str]:
         # History is append-only: a re-sync while the issue stays closed
         # upstream must not pile up duplicate closure signals (the
         # "re-synced" event always sits between them, so the scan covers
-        # the whole log rather than just the last entry).
-        if not any(h.get("event") == event for h in history):
+        # the whole log rather than just the last entry).  Non-mapping
+        # entries inside a surviving list are data, not events — the
+        # isinstance guard keeps them from crashing the dedupe scan.
+        if not any(isinstance(h, dict) and h.get("event") == event
+                   for h in history):
             history.append({"at": now, "event": event,
                             "by": "import_issues.py"})
         return (f"ISSUE-{number}: upstream closed {reason}"
@@ -1552,10 +1566,16 @@ def write_back_close(path: Path, entry: Dict, plan: Dict,
     fm["upstream_state_reason"] = "COMPLETED"
     # History is append-only — a re-run after a partial failure must
     # not pile up an identical event (same dedupe convention as the
-    # upstream-closed sync signal).
-    history = fm.setdefault("history", [])
+    # upstream-closed sync signal).  Frontmatter is untrusted: a
+    # non-list history (null, scalar, string) normalizes to a fresh
+    # log, and non-mapping entries inside a list are data that must
+    # not crash the dedupe scan.
+    history = fm.get("history")
+    if not isinstance(history, list):
+        history = fm["history"] = []
     event = "upstream-close: executed (gh)"
-    if not any(h.get("event") == event for h in history):
+    if not any(isinstance(h, dict) and h.get("event") == event
+               for h in history):
         history.append({"at": now, "event": event,
                         "by": current_user()})
     path.write_text("---\n"
@@ -1586,6 +1606,24 @@ def _print_close_abort(n: int, exc: SystemExit) -> None:
     print(f"ERROR ISSUE-{n}: {exc.code} — aborting batch; re-run `sync` "
           "(or transition the shadow manually) to reconcile",
           file=sys.stderr)
+
+
+def _write_back_guarded(path: Path, entry: Dict, plan: Dict,
+                        now: str) -> bool:
+    """write_back_close under a batch guard.
+
+    Shadow frontmatter is not a trusted schema — an unexpected defect
+    inside the write-back (or an unwritable file) must flag the entry
+    and let the remaining entries proceed, never abort a partially-
+    executed batch silently after the upstream close already landed.
+    BaseException (SystemExit/GhTimeout, interrupts) still propagates.
+    """
+    try:
+        return write_back_close(path, entry, plan, now)
+    except Exception as e:
+        print(f"ERROR ISSUE-{entry.get('issue', '?')}: shadow write-back "
+              f"failed: {e}", file=sys.stderr)
+        return False
 
 
 def cmd_close(args: argparse.Namespace) -> int:
@@ -1689,8 +1727,8 @@ def cmd_close(args: argparse.Namespace) -> int:
                 # Under --dry-run the preview stays write-free.
                 if not args.dry_run:
                     path = shadow_path(args.output_dir, int(n))
-                    if not write_back_close(path, entry, plan,
-                                            utc_now_iso()):
+                    if not _write_back_guarded(path, entry, plan,
+                                               utc_now_iso()):
                         failures += 1
                         continue
                 print(f"ISSUE-{n}: already closed upstream — skipped")
@@ -1739,7 +1777,7 @@ def cmd_close(args: argparse.Namespace) -> int:
             failures += 1
             continue
         path = shadow_path(args.output_dir, int(n))
-        if not write_back_close(path, entry, plan, utc_now_iso()):
+        if not _write_back_guarded(path, entry, plan, utc_now_iso()):
             failures += 1
             continue
         print(f"ISSUE-{n}: closed upstream COMPLETED")

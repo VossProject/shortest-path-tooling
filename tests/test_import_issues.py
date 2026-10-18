@@ -1299,6 +1299,24 @@ def test_resync_upstream_closed_dedup(tmp_path, monkeypatch, capsys):
     assert events.count("upstream-closed: NOT_PLANNED") == 1
 
 
+@pytest.mark.parametrize("history", [None, 5, "imported", ["imported"]])
+def test_resync_normalizes_malformed_history(tmp_path, monkeypatch,
+                                             capsys, history):
+    # history is untrusted frontmatter — a null/scalar/string value
+    # must normalize to a fresh event log on re-sync, never crash the
+    # closure signal mid-batch or carry per-character junk forward.
+    np_issue = fixture_issue("gh_issue_list_all.json", 99996)
+    make_shadow(tmp_path, 99996, fm_extra={"history": history})
+    rc = run_sync(tmp_path, monkeypatch, [np_issue],
+                  extra_args=["--no-digest"])
+    assert rc == 0
+    assert "suggest wontfix" in capsys.readouterr().out
+    fm, _ = frontmatter_and_body(tmp_path / "ISSUE-99996.md")
+    assert isinstance(fm["history"], list)
+    events = [h["event"] for h in fm["history"] if isinstance(h, dict)]
+    assert "upstream-closed: NOT_PLANNED" in events
+
+
 def test_resync_title_with_triple_dash_preserves_maintainer(tmp_path,
                                                           monkeypatch):
     # yaml.safe_dump emits a scalar containing "---" unquoted; the
@@ -2444,6 +2462,61 @@ def test_close_rerun_no_duplicate_events(tmp_path, monkeypatch, capsys):
     events = [h["event"] for h in fm["history"]]
     assert events.count("upstream-close: executed (gh)") == 1
     assert events.count("status: reported -> closed") == 1
+
+
+@pytest.mark.parametrize("history", [None, 5, "imported", ["imported"]])
+def test_close_write_back_normalizes_malformed_history(
+        tmp_path, monkeypatch, capsys, history):
+    # The already-CLOSED self-heal write-back must survive malformed
+    # history frontmatter — a corrupt file flags as a named ERROR at
+    # worst, never an uncaught traceback mid-close-batch.
+    path = make_shadow(tmp_path, 504, fm_extra={"history": history})
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    monkeypatch.setattr(ii, "gh_json",
+                        lambda args: load_fixture(
+                            "gh_issue_view_closed.json"))
+    calls = []
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: calls.append(list(args)))
+    rc = run_close(tmp_path, plan_path)
+    assert rc == 0
+    assert calls == []
+    fm, _ = frontmatter_and_body(path)
+    assert fm["status"] == "closed"
+    events = [h["event"] for h in fm["history"] if isinstance(h, dict)]
+    assert "upstream-close: executed (gh)" in events
+
+
+def test_close_write_back_crash_flags_entry_continues(
+        tmp_path, monkeypatch, capsys):
+    # One corrupt shadow file must never abort a partially-executed
+    # batch — the write-back guard flags the entry and the remaining
+    # entries still run to completion.
+    make_shadow(tmp_path, 504)
+    p505 = make_shadow(tmp_path, 505)
+    plan_path = make_closure_plan(
+        tmp_path, [replay_entry(504), replay_entry(505)])
+    monkeypatch.setattr(ii, "gh_json",
+                        lambda args: load_fixture(
+                            "gh_issue_view_closed.json"))
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: ii.subprocess.CompletedProcess(
+                            ["gh", *args], 0))
+    real_write_back = ii.write_back_close
+
+    def flaky_write_back(path, entry, plan, now):
+        if entry["issue"] == 504:
+            raise TypeError("corrupt history")
+        return real_write_back(path, entry, plan, now)
+
+    monkeypatch.setattr(ii, "write_back_close", flaky_write_back)
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    assert "write-back" in err
+    fm, _ = frontmatter_and_body(p505)
+    assert fm["status"] == "closed"
 
 
 def test_close_executes_and_records(tmp_path, monkeypatch):
