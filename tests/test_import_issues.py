@@ -1938,6 +1938,36 @@ def test_gh_run_called_process_error_exits_with_stderr(monkeypatch):
     assert "boom details" in str(exc.value)
 
 
+def test_gh_timeout_is_systemexit():
+    # GhTimeout must BE a SystemExit so every existing
+    # pytest.raises(SystemExit) fixture still catches it — call sites
+    # order `except GhTimeout` (abort) before `except SystemExit`
+    # (per-entry flag).
+    assert issubclass(ii.GhTimeout, SystemExit)
+
+
+def test_gh_json_called_process_error_exits_cleanly(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise ii.subprocess.CalledProcessError(
+            2, cmd, stderr="boom details")
+
+    monkeypatch.setattr(ii.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit) as exc:
+        ii.gh_json(["issue", "view", "504"])
+    assert "boom details" in str(exc.value)
+
+
+def test_gh_json_non_json_output_exits_cleanly(monkeypatch):
+    class FakeProc:
+        stdout = "not json {"
+
+    monkeypatch.setattr(ii.subprocess, "run",
+                        lambda cmd, **kwargs: FakeProc())
+    with pytest.raises(SystemExit) as exc:
+        ii.gh_json(["issue", "view", "504"])
+    assert "non-JSON" in str(exc.value)
+
+
 # --------------------------------------------------------------------------
 # plan-close / close — closure-plan emission and execution
 # --------------------------------------------------------------------------
@@ -2237,6 +2267,146 @@ def test_close_flags_unconfirmed_reason(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "ISSUE-504" in err
     assert path.read_text() == before
+
+
+def test_close_recheck_failure_continues(tmp_path, monkeypatch, capsys):
+    # A SystemExit on the pre-close recheck flags ONLY that entry — the
+    # read is cheap and doubles as the systemic-outage tripwire, so the
+    # batch keeps going to the next entry.
+    p504 = make_shadow(tmp_path, 504)
+    p505 = make_shadow(tmp_path, 505)
+    before504 = p504.read_text()
+    before505 = p505.read_text()
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504),
+                                             replay_entry(505)])
+
+    def fake_gh_json(args):
+        raise SystemExit("gh issue view failed: boom")
+
+    calls = []
+    monkeypatch.setattr(ii, "gh_json", fake_gh_json)
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: calls.append(list(args)))
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    assert "ERROR ISSUE-505" in err    # batch continued to the next entry
+    assert calls == []
+    assert p504.read_text() == before504
+    assert p505.read_text() == before505
+
+
+def test_close_write_failure_continues(tmp_path, monkeypatch, capsys):
+    # A SystemExit on the `gh issue close` write flags that entry — the
+    # close may have landed server-side, so it is fail-closed marked —
+    # but the remaining entries are independent and still execute.
+    p504 = make_shadow(tmp_path, 504)
+    p505 = make_shadow(tmp_path, 505)
+    before504 = p504.read_text()
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504),
+                                             replay_entry(505)])
+    views = iter([
+        {"state": "OPEN", "stateReason": None},            # 504 pre-view
+        {"state": "OPEN", "stateReason": None},            # 505 pre-view
+        dict(load_fixture("gh_issue_view_closed.json")),   # 505 confirm
+    ])
+    monkeypatch.setattr(ii, "gh_json", lambda args: next(views))
+    gh_calls = []
+
+    def fake_gh_run(args):
+        gh_calls.append(list(args))
+        if len(gh_calls) == 1:
+            raise SystemExit("gh issue close failed: boom")
+        return ii.subprocess.CompletedProcess(["gh", *args], 0)
+
+    monkeypatch.setattr(ii, "gh_run", fake_gh_run)
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    assert len(gh_calls) == 2          # entry 505's write still attempted
+    assert p504.read_text() == before504
+    fm, _ = frontmatter_and_body(p505)
+    assert fm["verification"]["fix_pr"] == replay_entry(505)["fix_pr"]
+
+
+def test_close_confirm_failure_aborts_batch(tmp_path, monkeypatch, capsys):
+    # A close write that cannot be confirmed means the tool is blind —
+    # the batch aborts immediately, remaining entries are never tried.
+    p504 = make_shadow(tmp_path, 504)
+    p505 = make_shadow(tmp_path, 505)
+    before505 = p505.read_text()
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504),
+                                             replay_entry(505)])
+    view_calls = {"n": 0}
+
+    def fake_gh_json(args):
+        view_calls["n"] += 1
+        if view_calls["n"] == 1:
+            return {"state": "OPEN", "stateReason": None}
+        raise SystemExit("gh issue view failed: confirm boom")
+
+    gh_calls = []
+
+    def fake_gh_run(args):
+        gh_calls.append(list(args))
+        return ii.subprocess.CompletedProcess(["gh", *args], 0)
+
+    monkeypatch.setattr(ii, "gh_json", fake_gh_json)
+    monkeypatch.setattr(ii, "gh_run", fake_gh_run)
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    # The abort path names the recovery: re-run sync or transition the
+    # shadow manually.
+    assert "sync" in err or "manual" in err
+    assert len(gh_calls) == 1          # entry 505's write never attempted
+    assert p505.read_text() == before505
+
+
+@pytest.mark.parametrize("site", ["view", "close", "confirm"])
+def test_close_timeout_aborts_batch(tmp_path, monkeypatch, capsys, site):
+    # A gh timeout at ANY call site aborts the batch — a wedged gh means
+    # the tool is blind, and mutating while blind is never allowed.
+    p504 = make_shadow(tmp_path, 504)
+    p505 = make_shadow(tmp_path, 505)
+    before504 = p504.read_text()
+    before505 = p505.read_text()
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504),
+                                             replay_entry(505)])
+    view_calls = {"n": 0}
+
+    def fake_gh_json(args):
+        view_calls["n"] += 1
+        if site == "view":
+            raise ii.GhTimeout("gh issue view timed out after 120s")
+        if site == "confirm" and view_calls["n"] == 2:
+            raise ii.GhTimeout("gh issue view timed out after 120s")
+        return {"state": "OPEN", "stateReason": None}
+
+    gh_calls = []
+
+    def fake_gh_run(args):
+        gh_calls.append(list(args))
+        if site == "close":
+            raise ii.GhTimeout("gh issue close timed out after 120s")
+        return ii.subprocess.CompletedProcess(["gh", *args], 0)
+
+    monkeypatch.setattr(ii, "gh_json", fake_gh_json)
+    monkeypatch.setattr(ii, "gh_run", fake_gh_run)
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    assert "sync" in err or "manual" in err
+    assert p504.read_text() == before504
+    assert p505.read_text() == before505   # entry 505 never attempted
+    expected_writes = {"view": 0, "close": 1, "confirm": 1}[site]
+    assert len(gh_calls) == expected_writes
+    expected_views = {"view": 1, "close": 1, "confirm": 2}[site]
+    assert view_calls["n"] == expected_views
 
 
 # --------------------------------------------------------------------------
