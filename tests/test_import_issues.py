@@ -1974,8 +1974,13 @@ def test_gh_json_non_json_output_exits_cleanly(monkeypatch):
 
 def fixed_shadow(tmp_path, number=504,
                  fix_pr="https://github.com/Skretzo/shortest-path/pull/539",
-                 scenario_rows=None, status="triaged"):
-    """A close-set shadow: open upstream, verdict fixed, fix_pr set."""
+                 scenario_rows=None, status="verified"):
+    """A close-set shadow: open upstream, verdict fixed, fix_pr set.
+
+    ``status="verified"`` (plus the populated verification block below)
+    is what the plan-close eligibility gate checks — the conjunction of
+    the label and the evidence artifact ``verify`` writes.
+    """
     rows = ["alpha scenario"] if scenario_rows is None else scenario_rows
     return make_shadow(
         tmp_path, number, status=status, body_text=PRD_BODY,
@@ -2081,10 +2086,19 @@ def test_plan_close_dry_run_writes_nothing(tmp_path, capsys):
 def test_plan_close_skips_missing_fix_pr(tmp_path, monkeypatch, capsys):
     # verdict fixed but attribution not yet populated — the entry is
     # skipped with the merged-PR candidates listed as a hint, and the
-    # empty plan writes nothing.
-    make_shadow(tmp_path, 504, fm_extra={
+    # empty plan writes nothing.  The eligibility gate already passed
+    # (verified + populated evidence) so the fix_pr SKIP is what fires.
+    make_shadow(tmp_path, 504, status="verified", fm_extra={
         "scenario_rows": ["alpha scenario"],
-        "triage": triage_block(verdict="fixed", unblock_conditions=[])})
+        "triage": triage_block(verdict="fixed", unblock_conditions=[]),
+        "verification": {
+            "command": "./gradlew dashboard -PdashboardSuite=x",
+            "dataset_rows": ["alpha scenario"],
+            "report": "build/reports/bundles/sweep/report.json",
+            "fix_commit": "31bc5e9",
+            "fix_pr": None,
+            "verifier": "tester", "verified_at": "2026-09-28T00:00:00Z",
+        }})
     monkeypatch.setattr(
         ii, "gh_json", lambda args: load_fixture("gh_pr_list_merged.json"))
     rc = run_plan_close(tmp_path)
@@ -2776,9 +2790,17 @@ def test_plan_close_unparseable_report_fails(tmp_path, capsys):
 def test_plan_close_fallback_emits_without_fix_pr(tmp_path, capsys):
     # --fallback is the explicit opt-in for "no fixing PR identified" —
     # the entry emits with fix_pr: null and the documented wording.
-    make_shadow(tmp_path, 504, fm_extra={
+    make_shadow(tmp_path, 504, status="verified", fm_extra={
         "scenario_rows": ["alpha scenario"],
-        "triage": triage_block(verdict="fixed", unblock_conditions=[])})
+        "triage": triage_block(verdict="fixed", unblock_conditions=[]),
+        "verification": {
+            "command": "./gradlew dashboard -PdashboardSuite=x",
+            "dataset_rows": ["alpha scenario"],
+            "report": "build/reports/bundles/sweep/report.json",
+            "fix_commit": "31bc5e9",
+            "fix_pr": None,
+            "verifier": "tester", "verified_at": "2026-09-28T00:00:00Z",
+        }})
     report = green_report(tmp_path, "alpha scenario")
     rc = run_plan_close(tmp_path, "--report", str(report),
                         "--fallback", "504")
@@ -2797,14 +2819,16 @@ def test_plan_close_fallback_emits_without_fix_pr(tmp_path, capsys):
 def test_plan_close_manual_kind_for_unexpressible(tmp_path, capsys):
     # expressible: false + no rows = the manual-verification lane: a
     # `manual` kind entry, still fix_pr-gated, citing pin and blocked_on.
-    make_shadow(tmp_path, 520, fm_extra={
+    # --manual stores its evidence ref in `report`, so a real manual
+    # verification populates the same four fields the gate checks.
+    make_shadow(tmp_path, 520, status="verified", fm_extra={
         "scenario_rows": [],
         "triage": triage_block(verdict="fixed", expressible=False,
                                blocked_on="ui-teleport-highlight",
                                unblock_conditions=[]),
         "verification": {
             "command": "manual UI check",
-            "dataset_rows": [], "report": None,
+            "dataset_rows": [], "report": "manual: in-client UI check",
             "fix_commit": "abc1234",
             "fix_pr": "https://github.com/Skretzo/shortest-path/pull/462",
             "verifier": "tester", "verified_at": "2026-09-28T00:00:00Z",
@@ -2825,7 +2849,7 @@ def test_plan_close_manual_kind_for_unexpressible(tmp_path, capsys):
 def test_plan_close_expressible_without_rows_is_error(tmp_path, capsys):
     # expressible: true but zero scenario_rows is a data bug — skip with
     # a named error, never a silent manual entry.
-    make_shadow(tmp_path, 55, fm_extra={
+    make_shadow(tmp_path, 55, status="verified", fm_extra={
         "scenario_rows": [],
         "triage": triage_block(verdict="fixed", expressible=True,
                                unblock_conditions=[]),
@@ -2846,7 +2870,7 @@ def test_plan_close_refuses_mixed_pins(tmp_path, capsys):
     # Emitted entries spanning different evidence pins would produce a
     # plan citing the wrong replay baseline — refuse, name the divergence.
     for n, pin in ((503, "pin-aaa"), (504, "pin-bbb")):
-        make_shadow(tmp_path, n, fm_extra={
+        make_shadow(tmp_path, n, status="verified", fm_extra={
             "scenario_rows": ["alpha scenario"],
             "triage": triage_block(
                 verdict="fixed", unblock_conditions=[],
@@ -2908,3 +2932,121 @@ def test_plan_close_closed_upstream_never_emitted(tmp_path, capsys):
                         "--fallback", "504")
     assert rc != 0          # write-mode empty plan still refuses
     assert not (tmp_path / "closure-plan.json").exists()
+
+
+# --------------------------------------------------------------------------
+# plan-close eligibility gate — verified + populated-evidence conjunction,
+# untrusted-frontmatter guards, and the plan-path write guard
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "status", ["reported", "triaged", "fixed", "in_progress"])
+def test_plan_close_skips_unverified_status(tmp_path, capsys, status):
+    # Eligibility requires status `verified` — a label only
+    # record_verification can write.  Any earlier lifecycle state is
+    # skipped with the remediation spelled out, even when the evidence
+    # block is already populated.
+    fixed_shadow(tmp_path, 504, status=status)
+    report = green_report(tmp_path, "alpha scenario")
+    rc = run_plan_close(tmp_path, "--report", str(report))
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "SKIP ISSUE-504" in out
+    assert status in out
+    assert "verify" in out
+    assert not (tmp_path / "closure-plan.json").exists()
+
+
+@pytest.mark.parametrize(
+    "field", ["command", "report", "verified_at", "verifier"])
+def test_plan_close_skip_names_failed_verification_field(
+        tmp_path, capsys, field):
+    # The evidence half of the conjunction: `verified` alone is a
+    # forgeable label — every verification field record_verification
+    # writes must be populated, and the SKIP names the first empty one.
+    verification = {
+        "command": "./gradlew dashboard -PdashboardSuite=x",
+        "dataset_rows": ["alpha scenario"],
+        "report": "build/reports/bundles/sweep/report.json",
+        "fix_commit": "31bc5e9",
+        "fix_pr": "https://github.com/Skretzo/shortest-path/pull/539",
+        "verifier": "tester", "verified_at": "2026-09-28T00:00:00Z",
+    }
+    verification[field] = None
+    make_shadow(tmp_path, 504, status="verified", fm_extra={
+        "scenario_rows": ["alpha scenario"],
+        "triage": triage_block(verdict="fixed", unblock_conditions=[]),
+        "verification": verification})
+    report = green_report(tmp_path, "alpha scenario")
+    rc = run_plan_close(tmp_path, "--report", str(report))
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "SKIP ISSUE-504" in out
+    assert f"verification.{field}" in out
+    assert "verify" in out
+    assert not (tmp_path / "closure-plan.json").exists()
+
+
+def test_plan_close_dry_run_prints_skips(tmp_path, capsys):
+    # Gate refusals are visible in preview: the scan runs before the
+    # dry-run early return, so a --dry-run approval diff names every
+    # ineligible file and its remediation.
+    fixed_shadow(tmp_path, 504, status="triaged")
+    report = green_report(tmp_path, "alpha scenario")
+    rc = run_plan_close(tmp_path, "--report", str(report), "--dry-run")
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "SKIP ISSUE-504" in out
+    assert "verified" in out
+    assert "would close" not in out
+    assert not (tmp_path / "closure-plan.json").exists()
+
+
+def test_plan_close_unhashable_frontmatter_no_crash(tmp_path, capsys):
+    # Frontmatter is untrusted — a list-valued pin_sha, command, or
+    # report is unhashable and must degrade cleanly through the set
+    # builders, never crash the eligibility scan with a TypeError.
+    make_shadow(tmp_path, 504, status="verified", fm_extra={
+        "scenario_rows": ["alpha scenario"],
+        "triage": triage_block(verdict="fixed", unblock_conditions=[],
+                               evidence={"pin_sha": ["a", "b"],
+                                         "report": None}),
+        "verification": {
+            "command": ["x"],          # unhashable hostile shapes
+            "dataset_rows": ["alpha scenario"],
+            "report": ["r"],
+            "fix_commit": "31bc5e9",
+            "fix_pr": "https://github.com/Skretzo/shortest-path/pull/539",
+            "verifier": "tester", "verified_at": "2026-09-28T00:00:00Z",
+        }})
+    report = green_report(tmp_path, "alpha scenario")
+    rc = run_plan_close(tmp_path, "--report", str(report))
+    capsys.readouterr()
+    assert rc == 0                     # emitted — never a TypeError
+    plan = json.loads((tmp_path / "closure-plan.json").read_text())
+    assert plan["entries"][0]["issue"] == 504
+
+
+def test_plan_close_nested_plan_path_creates_parents(tmp_path):
+    # --plan accepts a path whose parent directories don't exist yet.
+    fixed_shadow(tmp_path, 504)
+    report = green_report(tmp_path, "alpha scenario")
+    plan_path = tmp_path / "deep" / "nested" / "plan.json"
+    rc = run_plan_close(tmp_path, "--plan", str(plan_path),
+                        "--report", str(report))
+    assert rc == 0
+    assert plan_path.is_file()
+
+
+def test_plan_close_unwritable_plan_path_named_error(tmp_path, capsys):
+    # A --plan target that cannot be written (here: an existing
+    # directory) fails with a named ERROR, never a traceback.
+    fixed_shadow(tmp_path, 504)
+    report = green_report(tmp_path, "alpha scenario")
+    plan_dir = tmp_path / "as-dir"
+    plan_dir.mkdir()
+    rc = run_plan_close(tmp_path, "--plan", str(plan_dir),
+                        "--report", str(report))
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR" in err and "cannot write plan" in err
