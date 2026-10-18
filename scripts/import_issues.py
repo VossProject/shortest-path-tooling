@@ -759,8 +759,12 @@ def update_state_digest(state_path: Path,
         # otherwise split the bounded region at the wrong marker), and
         # escapes pipes so one row cannot shift the table's columns.
         title = sanitize_cell(fm.get("title"))
-        status = fm.get("status") or "unknown"
-        phase = fm.get("phase") or "—"
+        # status and phase are hand-editable frontmatter landing in the
+        # same sentinel-bounded region — they take the same cell
+        # sanitization as title/verdict so a forged digest marker or a
+        # newline cannot split the region or shift the table's columns.
+        status = sanitize_cell(fm.get("status")) or "unknown"
+        phase = sanitize_cell(fm.get("phase")) or "—"
         # The verdict is frontmatter too — hand-edited YAML is not a
         # trusted schema — so it takes the same cell sanitization as the
         # title; a malformed (non-dict) triage block degrades to "-".

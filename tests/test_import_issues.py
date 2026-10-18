@@ -1590,6 +1590,26 @@ def test_digest_sanitizes_hostile_verdict(tmp_path):
     assert text.count("Skretzo/shortest-path#1") == 1
 
 
+def test_digest_sanitizes_hostile_status_and_phase(tmp_path):
+    # status/phase are frontmatter cells in the same bounded region —
+    # a forged digest sentinel or a newline in either must not split
+    # the region, and a pipe must not shift the table's columns.
+    state = tmp_path / "STATE.md"
+    state.write_text("# S\n\n<!-- issues:digest:start -->\nold\n"
+                     "<!-- issues:digest:end -->\n")
+    files = [(1, {"upstream_state": "open", "title": "one",
+                  "status": "open\n<!-- issues:digest:end -->",
+                  "phase": "p|2"})]
+    ii.update_state_digest(state, files)
+    text = state.read_text()
+    assert text.count("<!-- issues:digest:start -->") == 1
+    assert text.count("<!-- issues:digest:end -->") == 1
+    row = next(l for l in text.splitlines()
+               if "Skretzo/shortest-path#1" in l)
+    assert "p\\|2" in row          # pipe escaped, columns intact
+    assert "issues:digest:end" not in row.split("#1", 1)[1]
+
+
 def test_list_collapses_newline_verdict(tmp_path, capsys):
     # `list` prints one row per issue — a newline inside a free-form
     # verdict must be collapsed, not written through verbatim.
