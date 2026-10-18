@@ -1419,6 +1419,63 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
     return 0
 
 
+def write_back_close(path: Path, entry: Dict, plan: Dict,
+                     now: str) -> bool:
+    """Write-back for an upstream-confirmed CLOSED+COMPLETED close.
+
+    Shared by the post-confirm branch and the already-CLOSED self-heal
+    branch — a crash between ``gh issue close`` and the shadow write
+    re-runs this path idempotently on the next ``close`` run.  Prints
+    the named ERROR line and returns False on failure, True otherwise.
+    """
+    n = entry["issue"]
+    fm, body = load_shadow(path)
+    if fm is None:
+        print(f"ERROR ISSUE-{n}: closed upstream but "
+              f"{path.name} has no readable frontmatter",
+              file=sys.stderr)
+        return False
+    # Fill-gap merge: a populated verify-event field is repudiation-
+    # proof — plan/entry values fill only empty slots.
+    ver = (fm.get("verification")
+           if isinstance(fm.get("verification"), dict) else {})
+    fm["verification"] = {
+        "command": ver.get("command") or plan.get("command"),
+        "dataset_rows": (ver.get("dataset_rows")
+                         or entry.get("evidence_rows") or []),
+        "report": ver.get("report") or plan.get("report"),
+        "fix_commit": ver.get("fix_commit") or entry.get("fix_commit"),
+        "fix_pr": ver.get("fix_pr") or entry.get("fix_pr"),
+        "verifier": ver.get("verifier") or current_user(),
+        "verified_at": ver.get("verified_at") or now,
+    }
+    fm["upstream_state"] = "closed"
+    fm["upstream_state_reason"] = "COMPLETED"
+    # History is append-only — a re-run after a partial failure must
+    # not pile up an identical event (same dedupe convention as the
+    # upstream-closed sync signal).
+    history = fm.setdefault("history", [])
+    event = "upstream-close: executed (gh)"
+    if not any(h.get("event") == event for h in history):
+        history.append({"at": now, "event": event,
+                        "by": current_user()})
+    path.write_text("---\n"
+                    + yaml.safe_dump(fm, sort_keys=False,
+                                     allow_unicode=True)
+                    + "---" + body)
+    # The status hop goes through the audited transition path, which
+    # re-loads the file from disk — write first, hop second.  An
+    # already-terminal file has nothing to reconcile, so a close
+    # re-run stays a clean no-op instead of flagging a spurious
+    # invalid transition.
+    if fm.get("status") != "closed":
+        ok, msg = transition_status(path, "closed", by=current_user())
+        if not ok:
+            print(f"ERROR ISSUE-{n}: {msg}", file=sys.stderr)
+            return False
+    return True
+
+
 def _print_close_abort(n: int, exc: SystemExit) -> None:
     """Named recovery line printed when a close batch aborts mid-run.
 
@@ -1496,7 +1553,24 @@ def cmd_close(args: argparse.Namespace) -> int:
             failures += 1
             continue
         if state.get("state") == "CLOSED":
-            print(f"ISSUE-{n}: already closed upstream — skipped")
+            if state.get("stateReason") == "COMPLETED":
+                # Self-heal: a crash between `gh close` and the shadow
+                # write re-runs the identical write-back idempotently.
+                # Under --dry-run the preview stays write-free.
+                if not args.dry_run:
+                    path = shadow_path(args.output_dir, int(n))
+                    if not write_back_close(path, entry, plan,
+                                            utc_now_iso()):
+                        failures += 1
+                        continue
+                print(f"ISSUE-{n}: already closed upstream — skipped")
+                continue
+            # An executed close can never misrecord a different close
+            # reason — flag for review, write nothing.
+            print(f"ERROR ISSUE-{n}: already closed upstream with "
+                  f"reason {state.get('stateReason')}",
+                  file=sys.stderr)
+            failures += 1
             continue
         if args.dry_run:
             print(f"would close ISSUE-{n}: {comment}")
@@ -1535,53 +1609,9 @@ def cmd_close(args: argparse.Namespace) -> int:
             failures += 1
             continue
         path = shadow_path(args.output_dir, int(n))
-        fm, body = load_shadow(path)
-        if fm is None:
-            print(f"ERROR ISSUE-{n}: closed upstream but "
-                  f"{path.name} has no readable frontmatter",
-                  file=sys.stderr)
+        if not write_back_close(path, entry, plan, utc_now_iso()):
             failures += 1
             continue
-        now = utc_now_iso()
-        # Fill-gap merge: a populated verify-event field is
-        # repudiation-proof — plan/entry values fill only empty slots.
-        ver = (fm.get("verification")
-               if isinstance(fm.get("verification"), dict) else {})
-        fm["verification"] = {
-            "command": ver.get("command") or plan.get("command"),
-            "dataset_rows": (ver.get("dataset_rows")
-                             or entry.get("evidence_rows") or []),
-            "report": ver.get("report") or plan.get("report"),
-            "fix_commit": ver.get("fix_commit") or entry.get("fix_commit"),
-            "fix_pr": ver.get("fix_pr") or entry.get("fix_pr"),
-            "verifier": ver.get("verifier") or current_user(),
-            "verified_at": ver.get("verified_at") or now,
-        }
-        fm["upstream_state"] = "closed"
-        fm["upstream_state_reason"] = "COMPLETED"
-        # History is append-only — a re-run after a partial failure must
-        # not pile up an identical event (same dedupe convention as the
-        # upstream-closed sync signal).
-        history = fm.setdefault("history", [])
-        event = "upstream-close: executed (gh)"
-        if not any(h.get("event") == event for h in history):
-            history.append({"at": now, "event": event,
-                            "by": current_user()})
-        path.write_text("---\n"
-                        + yaml.safe_dump(fm, sort_keys=False,
-                                         allow_unicode=True)
-                        + "---" + body)
-        # The status hop goes through the audited transition path, which
-        # re-loads the file from disk — write first, hop second.  An
-        # already-terminal file has nothing to reconcile, so a close
-        # re-run stays a clean no-op instead of flagging a spurious
-        # invalid transition.
-        if fm.get("status") != "closed":
-            ok, msg = transition_status(path, "closed", by=current_user())
-            if not ok:
-                print(f"ERROR ISSUE-{n}: {msg}", file=sys.stderr)
-                failures += 1
-                continue
         print(f"ISSUE-{n}: closed upstream COMPLETED")
     return 1 if failures else 0
 
