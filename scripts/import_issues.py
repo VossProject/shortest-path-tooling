@@ -8,9 +8,16 @@ upstream text (titles, bodies, comments) is fenced behind
 ``UNTRUSTED external content`` markers in the generated markdown.
 
 Subcommands:
-    sync    fetch issues (and PR fix candidates) via ``gh`` and write
-            shadow files into ``--output-dir``
-    list    print one status line per shadow file in ``--output-dir``
+    sync          fetch issues (and PR fix candidates) via ``gh`` and
+                  write shadow files into ``--output-dir``
+    list          print one status line per shadow file in
+                  ``--output-dir``
+    status        transition a shadow file's lifecycle status
+    check         lint shadow files and their scenario rows
+    verify        record replay evidence and mark an issue verified
+    plan-close    emit a closure plan for verified-fixed open issues
+    close         execute a closure plan against upstream issues
+    sweep-report  per-issue green/red/missing tally over a bundle report
 """
 from __future__ import annotations
 
@@ -194,22 +201,29 @@ def fetch_fix_candidates(limit: int = 500,
         # trust label when it resolves into the upstream repo itself —
         # cross-repo references close a different project's issue number.
         confirmed = {
-            ref["number"]
+            ref.get("number")
             for ref in pr.get("closingIssuesReferences") or []
-            if ((ref.get("repository") or {}).get("owner") or {})
+            if ref.get("number") is not None
+            and ((ref.get("repository") or {}).get("owner") or {})
                 .get("login") == upstream_owner
             and (ref.get("repository") or {}).get("name") == upstream_name
         }
         heuristic = set(CLOSING_RE.findall(pr.get("body") or ""))
         heuristic |= set(BRANCH_ISSUE_RE.findall(pr.get("headRefName") or ""))
+        pr_number = pr.get("number")
+        if pr_number is None:
+            continue
         for n in confirmed | {int(h) for h in heuristic}:
-            out.setdefault(n, []).append({
-                "pr": pr["number"], "url": pr["url"],
+            candidate = {
+                "pr": pr_number,
                 "author": (pr.get("author") or {}).get("login"),
                 "branch": pr.get("headRefName"),
                 "link": "confirmed" if n in confirmed else "heuristic",
                 "mergedAt": pr.get("mergedAt"),
-            })
+            }
+            if pr.get("url") is not None:
+                candidate["url"] = pr.get("url")
+            out.setdefault(n, []).append(candidate)
     return out
 
 
@@ -1187,7 +1201,7 @@ def record_verification(path: Path, *, command: str,
                            f"(or use --manual)")
         try:
             runs = load_report_runs(Path(report))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             return False, f"ERROR {path.name}: cannot parse report: {e}"
         by_name = {r.get("name"): r for r in runs if isinstance(r, dict)}
         for row in rows:
@@ -1225,6 +1239,13 @@ def record_verification(path: Path, *, command: str,
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    if args.manual and args.report:
+        # --manual stores its evidence ref in `report`, so combining it
+        # with a --report path would silently discard the user's report
+        # — refuse the combination with a named error.
+        print("ERROR --manual and --report are mutually exclusive "
+              "(--evidence carries the manual ref)", file=sys.stderr)
+        return 1
     rows = None
     if args.dataset_rows:
         rows = [r.strip() for r in args.dataset_rows.split(",")
@@ -1270,7 +1291,7 @@ def cmd_plan_close(args: argparse.Namespace) -> int:
     if args.report is not None:
         try:
             runs = load_report_runs(args.report)
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             print(f"ERROR {args.report}: cannot parse report: {e}",
                   file=sys.stderr)
             return 1
@@ -1694,7 +1715,7 @@ def cmd_sweep_report(args: argparse.Namespace) -> int:
     """
     try:
         runs = load_report_runs(args.report)
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         print(f"ERROR {args.report}: cannot parse report: {e}",
               file=sys.stderr)
         return 1
@@ -1702,8 +1723,9 @@ def cmd_sweep_report(args: argparse.Namespace) -> int:
     issues = fully_green = has_red = has_missing = 0
     for number, fm in sorted(scan_shadows(args.output_dir)):
         triage = fm.get("triage")
-        verdict = (triage.get("verdict") if isinstance(triage, dict)
-                   else None) or "-"
+        verdict = sanitize_cell(
+            triage.get("verdict") if isinstance(triage, dict) else None
+        ) or "-"
         rows = fm.get("scenario_rows")
         rows = list(rows) if isinstance(rows, list) else []
         green: List[str] = []
