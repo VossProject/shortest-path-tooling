@@ -999,6 +999,38 @@ def lint_shadow(path: Path, fm: Dict, body: str) -> List[str]:
     return errors
 
 
+def warn_shadow(path: Path, fm: Dict) -> List[str]:
+    """Non-blocking consistency warnings for one shadow file.
+
+    The upstream-closed consistency rule: an upstream-closed shadow whose
+    local status is a real maintainer state is drift the maintainer
+    should reconcile with ``status <N> closed`` (or ``wontfix`` for a
+    ``NOT_PLANNED`` upstream reason — the same conservative mapping
+    ``upstream_closure_signal`` uses).  ``reported`` is exempt: the
+    deferred-status-transition convention records verdicts without moving
+    ``status:``, so ``reported`` on a closed-upstream file is designed
+    bookkeeping lag, not drift — including it would flood the ledger
+    with hundreds of untouched files.  Terminal statuses already agree
+    with upstream and need no nudge.  An unknown status stays a
+    ``lint_shadow`` ERROR and is never double-reported here.  Warnings
+    ride the same ``warnings`` ledger as the scenario-rows deferred
+    names: printed before ERRORs, never gating the exit code.
+    """
+    if str(fm.get("upstream_state") or "").lower() != "closed":
+        return []
+    status = fm.get("status")
+    if status not in STATUS_ENUM:
+        return []
+    if status in ("reported", "closed", "wontfix", "duplicate"):
+        return []
+    reason = fm.get("upstream_state_reason")
+    target = "wontfix" if reason == "NOT_PLANNED" else "closed"
+    m = re.match(r"ISSUE-(\d+)$", path.stem)
+    number = m.group(1) if m else "<n>"
+    return [f"upstream_state closed ({reason}) but status {status!r}"
+            f" — run: status {number} {target}"]
+
+
 def scenario_index(index_file: Optional[Path] = None) -> Dict[str, str]:
     """Scenario name -> category across every committed suite.
 
@@ -1058,6 +1090,7 @@ def working_dataset_names(csv_path: Path) -> set:
 
 def cmd_check(args: argparse.Namespace) -> int:
     errors: List[Tuple[str, str]] = []
+    warnings: List[Tuple[str, str]] = []
     issue_numbers: set = set()
     scenario_refs: List[Tuple[str, str]] = []
     for path in sorted(args.output_dir.glob("ISSUE-*.md")):
@@ -1070,6 +1103,8 @@ def cmd_check(args: argparse.Namespace) -> int:
             continue
         for e in lint_shadow(path, fm, body):
             errors.append((path.name, e))
+        for w in warn_shadow(path, fm):
+            warnings.append((path.name, w))
         # lint_shadow already reports a non-list scenario_rows — skip
         # the iteration here so a string does not error per-character
         # and an int does not crash the run.
@@ -1079,7 +1114,6 @@ def cmd_check(args: argparse.Namespace) -> int:
     index = scenario_index(args.scenario_index)
     csv_path = args.scenario_csv or args.output_dir / "scenarios.csv"
     csv_names = working_dataset_names(csv_path)
-    warnings: List[Tuple[str, str]] = []
     for fname, row in scenario_refs:
         if row not in index:
             # The committed index is authoritative: membership there
