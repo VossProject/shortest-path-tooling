@@ -2141,8 +2141,13 @@ def test_close_dry_run_never_calls_gh_run(tmp_path, monkeypatch, capsys):
     assert fm["verification"]["fix_pr"] is None
 
 
-def test_close_skips_already_closed_upstream(tmp_path, monkeypatch, capsys):
-    make_shadow(tmp_path, 504)
+def test_close_already_closed_completed_writes_back(tmp_path, monkeypatch,
+                                                    capsys):
+    # A crash between `gh close` and the shadow write self-heals on
+    # re-run: an already-CLOSED+COMPLETED pre-check applies the identical
+    # write-back — gh_run is never called, and the reconcile hop
+    # legitimizes the bookkeeping correction on the just-written file.
+    path = make_shadow(tmp_path, 504)
     plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
     monkeypatch.setattr(ii, "gh_json",
                         lambda args: load_fixture(
@@ -2154,8 +2159,67 @@ def test_close_skips_already_closed_upstream(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert "already closed" in capsys.readouterr().out
     assert calls == []
-    fm, _ = frontmatter_and_body(tmp_path / "ISSUE-504.md")
-    assert fm["verification"]["fix_pr"] is None
+    fm, _ = frontmatter_and_body(path)
+    assert fm["upstream_state"] == "closed"
+    assert fm["upstream_state_reason"] == "COMPLETED"
+    assert fm["status"] == "closed"
+    assert fm["verification"]["fix_pr"] == replay_entry(504)["fix_pr"]
+    events = [h["event"] for h in fm["history"]]
+    assert events.count("upstream-close: executed (gh)") == 1
+    assert events.count("status: reported -> closed") == 1
+
+
+def test_close_already_closed_not_planned_flags(tmp_path, monkeypatch,
+                                                capsys):
+    # An executed-close event can never misrecord a different close
+    # reason — a non-COMPLETED already-CLOSED view flags the entry for
+    # review and writes nothing.
+    path = make_shadow(tmp_path, 504)
+    before = path.read_text()
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    monkeypatch.setattr(ii, "gh_json",
+                        lambda args: {"state": "CLOSED",
+                                      "stateReason": "NOT_PLANNED"})
+    calls = []
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: calls.append(list(args)))
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+    assert calls == []
+    assert path.read_text() == before
+
+
+def test_close_rerun_no_duplicate_events(tmp_path, monkeypatch, capsys):
+    # A second close run over the same plan appends no duplicate events:
+    # the already-CLOSED self-heal re-runs the write-back but history
+    # dedupe holds, and the status hop is skipped on an already-terminal
+    # file — no spurious ERROR flag.
+    path = make_shadow(tmp_path, 504)
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    views = iter([
+        {"state": "OPEN", "stateReason": None},
+        dict(load_fixture("gh_issue_view_closed.json")),
+    ])
+    monkeypatch.setattr(ii, "gh_json", lambda args: next(views))
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: ii.subprocess.CompletedProcess(
+                            ["gh", *args], 0))
+    rc = run_close(tmp_path, plan_path)
+    assert rc == 0
+    # Second run — upstream stays CLOSED+COMPLETED, so the already-
+    # CLOSED pre-check re-runs the same write-back idempotently.
+    monkeypatch.setattr(ii, "gh_json",
+                        lambda args: load_fixture(
+                            "gh_issue_view_closed.json"))
+    rc = run_close(tmp_path, plan_path)
+    assert rc == 0
+    assert "ERROR" not in capsys.readouterr().err
+    fm, _ = frontmatter_and_body(path)
+    events = [h["event"] for h in fm["history"]]
+    assert events.count("upstream-close: executed (gh)") == 1
+    assert events.count("status: reported -> closed") == 1
 
 
 def test_close_executes_and_records(tmp_path, monkeypatch):
