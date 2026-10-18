@@ -18,6 +18,9 @@ import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import org.junit.Test;
 import shortestpath.WorldPointUtil;
+import shortestpath.ShortestPathConfig;
+import shortestpath.accounts.Account;
+import shortestpath.accounts.Unlock;
 import shortestpath.accounts.Poh;
 import shortestpath.pathfinder.BankVisitState;
 import shortestpath.accounts.canonical.CanonicalAccounts;
@@ -27,6 +30,30 @@ import shortestpath.poh.PohNexusPortal;
 public class ProfilesTest {
     private static CompiledAccount canonical(String name) {
         return Profiles.get(name).setup(new ProfileContext(WorldPointUtil.UNDEFINED, true)).compile();
+    }
+
+    @Test
+    public void everyDeclaredUnlockReachesItsPluginSetting() throws ReflectiveOperationException {
+        for (Unlock unlock : Unlock.values()) {
+            if (unlock.kind == Unlock.Kind.SETTING) {
+                PluginSettings settings = new PluginSettings();
+                CompiledAccount.of(Account.builder().unlock(unlock).build(), settings);
+                assertEquals(unlock.name(), true, ShortestPathConfig.class.getMethod(unlock.setting).invoke(settings));
+            }
+        }
+    }
+
+    @Test
+    public void absentDeclarationsKeepThePluginDefaults() {
+        PluginSettings settings = new PluginSettings();
+        CompiledAccount compiled = CompiledAccount.of(Account.builder().unlock(Unlock.CANOE_AXE_STORED).build(), settings);
+        assertTrue(settings.unlockCanoeAxe());
+        assertTrue(compiled.getConfig().getUnlocks().contains(shortestpath.requirement.model.Unlock.CANOE_AXE));
+        assertFalse(settings.unlockXericsHonour());
+        assertFalse(settings.unlockDragontoothPassage());
+        assertFalse(settings.unlockMorUlRek());
+        assertFalse(settings.unlockBalloonLogBasket());
+        assertFalse(settings.respawnPrifddinas());
     }
 
     @Test

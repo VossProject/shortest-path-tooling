@@ -1,6 +1,6 @@
 # shortest-path-tooling
 
-Developer dashboards and OSRS cache dumpers for the [shortest-path](https://github.com/Skretzo/shortest-path) RuneLite plugin.
+Developer dashboards, shared headless routing and OSRS cache dumpers for the [shortest-path](https://github.com/Skretzo/shortest-path) RuneLite plugin.
 
 This repo carries `shortest-path` as a git submodule and uses a Gradle [composite build](https://docs.gradle.org/current/userguide/composite_builds.html) to consume the plugin's sources — so the dashboard and cache-dumper code never pollutes plugin PRs.
 
@@ -58,6 +58,10 @@ its pathfinder on that same thread. The runtime library uses plugin main sources
 loading, scenario runners and reporting remain test-only tooling.
 
 Run `./gradlew :routing:test` to check the shared profiles and account setup.
+
+Account unlocks with `Unlock.Kind.SETTING` declare facts the game does not report, such as a stored
+canoe axe. `CompiledAccount` applies them to plugin settings; `AccountCompiler` only writes game
+variables. Canonical benchmark accounts retain their existing reported unlocks and settings.
 
 ## Using a separate shortest-path checkout
 

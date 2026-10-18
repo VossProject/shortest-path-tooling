@@ -5,6 +5,7 @@ import shortestpath.accounts.Account;
 import shortestpath.accounts.AccountCompiler;
 import shortestpath.accounts.ClientState;
 import shortestpath.accounts.HeadlessClient;
+import shortestpath.accounts.Unlock;
 import shortestpath.items.ItemStateService;
 
 /** An account and plugin settings compiled into a refreshed pathfinder config. */
@@ -27,6 +28,7 @@ public final class CompiledAccount {
      * plugin treats as the client thread; run the pathfinder on the same thread.
      */
     public static CompiledAccount of(Account account, PluginSettings settings) {
+        applyUnlockSettings(account, settings);
         ClientState state = AccountCompiler.compile(account);
         Client client = HeadlessClient.of(state);
         AccountPathfinderConfig config = new AccountPathfinderConfig(client, settings, state);
@@ -38,6 +40,23 @@ public final class CompiledAccount {
         }
         config.refresh();
         return new CompiledAccount(config, client, settings, itemState);
+    }
+
+    private static void applyUnlockSettings(Account account, PluginSettings settings) {
+        for (Unlock unlock : account.unlocks()) {
+            if (unlock.kind != Unlock.Kind.SETTING) {
+                continue;
+            }
+            switch (unlock.setting) {
+                case "respawnPrifddinas": settings.setRespawnPrifddinas(true); break;
+                case "unlockCanoeAxe": settings.setUnlockCanoeAxe(true); break;
+                case "unlockXericsHonour": settings.setUnlockXericsHonour(true); break;
+                case "unlockDragontoothPassage": settings.setUnlockDragontoothPassage(true); break;
+                case "unlockMorUlRek": settings.setUnlockMorUlRek(true); break;
+                case "unlockBalloonLogBasket": settings.setUnlockBalloonLogBasket(true); break;
+                default: throw new IllegalStateException("no plugin setting for unlock " + unlock);
+            }
+        }
     }
 
     public AccountPathfinderConfig getConfig() { return config; }

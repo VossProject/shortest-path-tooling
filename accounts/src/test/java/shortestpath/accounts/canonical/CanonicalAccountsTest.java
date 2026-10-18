@@ -1,18 +1,28 @@
 package shortestpath.accounts.canonical;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import org.junit.Test;
 import shortestpath.accounts.Account;
 import shortestpath.accounts.AccountCompiler;
+import shortestpath.accounts.Unlock;
 
 public class CanonicalAccountsTest {
     @Test
     public void everyProfileCompiles() {
         for (String name : CanonicalAccounts.NAMES) {
             AccountCompiler.compile(CanonicalAccounts.account(name));
+        }
+    }
+
+    @Test
+    public void canonicalProfilesDoNotAssumeDeclaredUnlocks() {
+        for (String name : CanonicalAccounts.NAMES) {
+            assertFalse(name, CanonicalAccounts.account(name).unlocks().stream()
+                .anyMatch(unlock -> unlock.kind == Unlock.Kind.SETTING));
         }
     }
 
