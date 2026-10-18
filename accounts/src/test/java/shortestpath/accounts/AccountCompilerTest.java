@@ -1,6 +1,7 @@
 package shortestpath.accounts;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 
 import java.util.List;
@@ -43,6 +44,15 @@ public class AccountCompilerTest {
         assertEquals(153, state.varbits().get(VarbitID.VM_KUDOS).intValue());
         assertEquals(0, state.varbits().get(VarbitID.BOOKOFSCROLLS_NARDAH).intValue());
         assertEquals(32 | 16384, state.varplayers().get(VarPlayerID.QUETZALS_UNLOCKED).intValue());
+    }
+
+    @Test
+    public void declaredUnlocksDoNotWriteGameVariables() {
+        ClientState state = compile(Account.builder().unlock(Unlock.RESPAWN_PRIFDDINAS,
+            Unlock.CANOE_AXE_STORED, Unlock.XERICS_HONOUR, Unlock.DRAGONTOOTH_PASSAGE,
+            Unlock.MOR_UL_REK_INNER_CITY, Unlock.BALLOON_LOG_BASKET_STOCKED));
+        assertFalse(state.varbits().containsKey(-1));
+        assertFalse(state.varplayers().containsKey(-1));
     }
 
     @Test

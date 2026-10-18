@@ -1,6 +1,6 @@
 # shortest-path-tooling
 
-Developer dashboards and OSRS cache dumpers for the [shortest-path](https://github.com/Skretzo/shortest-path) RuneLite plugin.
+Developer dashboards, shared headless routing and OSRS cache dumpers for the [shortest-path](https://github.com/Skretzo/shortest-path) RuneLite plugin.
 
 This repo carries `shortest-path` as a git submodule and uses a Gradle [composite build](https://docs.gradle.org/current/userguide/composite_builds.html) to consume the plugin's sources — so the dashboard and cache-dumper code never pollutes plugin PRs.
 
@@ -36,6 +36,32 @@ Then open `http://localhost:8000`.
 The published dashboard is also available on GitHub Pages:
 
 `https://skretzo.github.io/shortest-path/`
+
+## Shared headless routing
+
+The `:routing` Java library exposes the profiles, plugin settings and account-backed pathfinder
+configuration used by the dashboard, benchmarks and route CLI. A headless service can use the same
+code through a Gradle composite build:
+
+```groovy
+includeBuild('shortest-path-tooling') {
+    dependencySubstitution {
+        substitute module('tooling:routing') using project(':routing')
+    }
+}
+```
+
+The consumer declares `implementation 'tooling:routing'`. The library exposes `:accounts`, the
+pinned plugin and the RuneLite client dependency needed for headless execution. Compile an account
+with `CompiledAccount.of(account, settings)`; this captures its state on the calling thread, so run
+its pathfinder on that same thread. The runtime library uses plugin main sources only. Corpus JSON
+loading, scenario runners and reporting remain test-only tooling.
+
+Run `./gradlew :routing:test` to check the shared profiles and account setup.
+
+Account unlocks with `Unlock.Kind.SETTING` declare facts the game does not report, such as a stored
+canoe axe. `CompiledAccount` applies them to plugin settings; `AccountCompiler` only writes game
+variables. Canonical benchmark accounts retain their existing reported unlocks and settings.
 
 ## Using a separate shortest-path checkout
 

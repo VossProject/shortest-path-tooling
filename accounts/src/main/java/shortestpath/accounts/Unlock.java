@@ -5,8 +5,8 @@ import net.runelite.api.gameval.VarbitID;
 
 /**
  * Something an account has unlocked that routing depends on and that is not a quest, diary,
- * spellbook or POH fact. Each sets one variable: a varbit to a value, or a bit in a
- * varplayer mask (quetzal platforms).
+ * spellbook or POH fact. Each sets a varbit, a bit in a varplayer mask (quetzal platforms),
+ * or a plugin setting for facts the game does not report.
  */
 public enum Unlock {
     FAIRY_RINGS(Group.TRANSPORT, Kind.VARBIT, VarbitID.FAIRY2_QUEENCURE_QUEST, 100),
@@ -86,15 +86,22 @@ public enum Unlock {
     RESPAWN_EDGEVILLE(Group.RESPAWN, Kind.VARBIT, VarbitID.EDGEVILLE_SPAWN, 1),
     RESPAWN_FEROX_ENCLAVE(Group.RESPAWN, Kind.VARBIT, VarbitID.WILDERNESS_SPAWN, 1),
     RESPAWN_KOUREND_CASTLE(Group.RESPAWN, Kind.VARBIT, VarbitID.KOUREND_SPAWN, 1),
-    RESPAWN_CIVITAS_ILLA_FORTIS(Group.RESPAWN, Kind.VARBIT, VarbitID.CIVITAS_SPAWN, 1);
+    RESPAWN_CIVITAS_ILLA_FORTIS(Group.RESPAWN, Kind.VARBIT, VarbitID.CIVITAS_SPAWN, 1),
+    RESPAWN_PRIFDDINAS(Group.RESPAWN, "respawnPrifddinas"),
+    CANOE_AXE_STORED(Group.TRANSPORT, "unlockCanoeAxe"),
+    XERICS_HONOUR(Group.TRANSPORT, "unlockXericsHonour"),
+    DRAGONTOOTH_PASSAGE(Group.TRANSPORT, "unlockDragontoothPassage"),
+    MOR_UL_REK_INNER_CITY(Group.TRANSPORT, "unlockMorUlRek"),
+    BALLOON_LOG_BASKET_STOCKED(Group.HOT_AIR_BALLOON, "unlockBalloonLogBasket");
 
     /** How an editor groups unlocks. */
     public enum Group { TRANSPORT, BOOK_OF_SCROLLS, PENDANT_OF_ATES, HOT_AIR_BALLOON, CATACOMBS, QUETZAL, ROWBOAT, RESPAWN }
 
-    enum Kind { VARBIT, VARPLAYER_BIT }
+    public enum Kind { VARBIT, VARPLAYER_BIT, SETTING }
 
     public final Group group;
-    final Kind kind;
+    public final Kind kind;
+    public final String setting;
     final int id;
     /** The variable's value when unlocked, or the bit for {@link Kind#VARPLAYER_BIT}. */
     final int value;
@@ -104,5 +111,18 @@ public enum Unlock {
         this.kind = kind;
         this.id = id;
         this.value = value;
+        this.setting = null;
+    }
+
+    Unlock(Group group, String setting) {
+        this.group = group;
+        this.kind = Kind.SETTING;
+        this.setting = setting;
+        this.id = -1;
+        this.value = 0;
+    }
+
+    public static Unlock[] reported() {
+        return java.util.Arrays.stream(values()).filter(unlock -> unlock.kind != Kind.SETTING).toArray(Unlock[]::new);
     }
 }

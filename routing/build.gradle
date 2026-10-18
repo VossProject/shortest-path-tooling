@@ -1,0 +1,29 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    maven {
+        url = 'https://repo.runelite.net'
+        content {
+            includeGroupByRegex("net\\.runelite.*")
+        }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    api 'shortestpath:shortest-path'
+    api project(':accounts')
+    api group: 'net.runelite', name: 'client', version: 'latest.release'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
+
+test {
+    jvmArgs = ['-Xms512m', '-Xmx4g']
+}
