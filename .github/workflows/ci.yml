@@ -43,6 +43,10 @@ jobs:
         run: ./gradlew :accounts:test --stacktrace
         shell: bash
 
+      - name: Test shared routing
+        run: ./gradlew :routing:test --stacktrace
+        shell: bash
+
       - name: Check the scenario suites and profiles
         # Loads every suite (Java and route data), compiles the Java suites' accounts, and
         # tests the profiles, the runner's frontends and the CLI.
