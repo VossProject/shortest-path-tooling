@@ -1790,6 +1790,28 @@ def test_fix_candidate_reference_without_repo_data_not_confirmed(
     assert 77 not in out and 78 not in out and 79 not in out
 
 
+def test_fix_candidates_missing_number_skipped(tmp_path, monkeypatch):
+    # An upstream API payload missing `number`/`url` (or a
+    # closingIssuesReferences entry missing `number`) is data from a
+    # shape the schema didn't promise — degrade by skipping, never
+    # KeyError.
+    prs = [{
+        "title": "work", "state": "OPEN", "body": "Fixes #504",
+        "author": {"login": "dev"}, "headRefName": "fix/504",
+        "closingIssuesReferences": [
+            {"number": None, "repository": {
+                "owner": {"login": "Skretzo"}, "name": "shortest-path"}},
+            {"repository": {
+                "owner": {"login": "Skretzo"}, "name": "shortest-path"}},
+        ],
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:00:00Z",
+    }]
+    monkeypatch.setattr(ii, "gh_json", lambda args: prs)
+    out = ii.fetch_fix_candidates()
+    assert 504 not in out
+
+
 def test_resync_closed_with_unmapped_reason_stays_silent(
         tmp_path, monkeypatch, capsys):
     # The closure-signal mapping is deliberately conservative: a closed
@@ -1894,6 +1916,36 @@ def test_verification_missing_file(tmp_path, capsys):
                     "--report", "report.json")
     assert rc != 0
     assert "file not found" in capsys.readouterr().err
+
+
+def test_verify_manual_and_report_rejected(tmp_path, capsys):
+    # --manual stores its evidence ref in `report`, so combining it with
+    # a --report path would silently discard the user's report — the
+    # combination is refused with a named error, never ignored.
+    path = make_shadow(tmp_path, 16, status="fixed")
+    before = path.read_text()
+    rc = run_verify(tmp_path, 16, "--command", "cmd", "--manual",
+                    "--evidence", "junit: DashboardTest#testFoo",
+                    "--report", "some-report.json")
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "--manual" in err and "--report" in err
+    assert path.read_text() == before
+
+
+def test_verify_unicode_report_fails_cleanly(tmp_path, capsys):
+    # A report file that is not valid UTF-8 raises UnicodeDecodeError on
+    # read — it joins the named `cannot parse` family, never a traceback.
+    path = make_shadow(tmp_path, 17, status="fixed",
+                       fm_extra={"scenario_rows": ["alpha scenario"]})
+    before = path.read_text()
+    report = tmp_path / "report.json"
+    report.write_bytes(b"\xff\xfe{\"runs\": []}")
+    rc = run_verify(tmp_path, 17, "--command", "cmd",
+                    "--report", str(report))
+    assert rc != 0
+    assert "cannot parse" in capsys.readouterr().err
+    assert path.read_text() == before
 
 
 # --------------------------------------------------------------------------
@@ -2740,6 +2792,21 @@ def test_sweep_report_malformed_report_fails(tmp_path, capsys):
     bad.write_text("{ not json")
     assert run_sweep_report(tmp_path, bad) != 0
     assert "cannot parse" in capsys.readouterr().err
+
+
+def test_sweep_report_sanitizes_verdict(tmp_path, capsys):
+    # verdict is hand-editable frontmatter — a newline or pipe in it
+    # must collapse into the single ISSUE line, not split the tally
+    # across rows or columns.
+    make_shadow(tmp_path, 7, fm_extra={
+        "triage": triage_block(verdict="data-gap\n| bogus")})
+    report = make_runs_report(tmp_path, [])
+    rc = run_sweep_report(tmp_path, report)
+    assert rc == 0
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.startswith("ISSUE-7 "))
+    assert "verdict=data-gap \\| bogus" in line
+    assert not any(l.startswith("| bogus") for l in out.splitlines())
 
 
 def test_sweep_report_writes_nothing(tmp_path, capsys):
