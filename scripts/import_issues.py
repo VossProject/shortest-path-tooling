@@ -1125,12 +1125,8 @@ def working_dataset_names(csv_path: Path) -> set:
 def cmd_check(args: argparse.Namespace) -> int:
     errors: List[Tuple[str, str]] = []
     warnings: List[Tuple[str, str]] = []
-    issue_numbers: set = set()
     scenario_refs: List[Tuple[str, str]] = []
     for path in sorted(args.output_dir.glob("ISSUE-*.md")):
-        m = re.match(r"ISSUE-(\d+)\.md$", path.name)
-        if m:
-            issue_numbers.add(int(m.group(1)))
         fm, body = load_shadow(path)
         if fm is None:
             errors.append((path.name, "no readable frontmatter"))
