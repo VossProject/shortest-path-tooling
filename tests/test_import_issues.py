@@ -2191,8 +2191,16 @@ def test_close_executes_and_records(tmp_path, monkeypatch):
     assert v["report"] == "rep"
     assert v["command"] == "cmd"
     assert v["verified_at"]
+    # The confirmed close writes the lifecycle back too: the upstream
+    # mirror fields and a maintainer status hop through the audited
+    # transition path (reported -> closed is legal here because the
+    # just-written file's own upstream_state is already closed).
+    assert fm["upstream_state"] == "closed"
+    assert fm["upstream_state_reason"] == "COMPLETED"
+    assert fm["status"] == "closed"
     events = [h["event"] for h in fm["history"]]
     assert events.count("upstream-close: executed (gh)") == 1
+    assert events.count("status: reported -> closed") == 1
 
     # Re-run with upstream reporting OPEN again: the close executes a
     # second time but the identical history event is not duplicated.
@@ -2202,6 +2210,133 @@ def test_close_executes_and_records(tmp_path, monkeypatch):
     fm, _ = frontmatter_and_body(path)
     events = [h["event"] for h in fm["history"]]
     assert events.count("upstream-close: executed (gh)") == 1
+    assert events.count("status: reported -> closed") == 1
+
+
+def test_close_fill_gap_merge_preserves_verification(tmp_path, monkeypatch):
+    # A confirmed close must never overwrite a populated verify-event
+    # field — plan/entry values fill ONLY empty slots, so the verify
+    # event's audit trail is repudiation-proof.
+    path = make_shadow(tmp_path, 504, status="verified", fm_extra={
+        "verification": {
+            "command": "orig-command",
+            "dataset_rows": ["orig row"],
+            "report": "orig-report",
+            "fix_commit": "origcommit",
+            "fix_pr": "https://example.invalid/pull/1",
+            "verifier": "orig-verifier",
+            "verified_at": "2026-01-01T00:00:00Z",
+        }})
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    views = iter([
+        {"state": "OPEN", "stateReason": None},
+        dict(load_fixture("gh_issue_view_closed.json")),
+    ])
+    monkeypatch.setattr(ii, "gh_json", lambda args: next(views))
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: ii.subprocess.CompletedProcess(
+                            ["gh", *args], 0))
+    rc = run_close(tmp_path, plan_path)
+    assert rc == 0
+    fm, _ = frontmatter_and_body(path)
+    v = fm["verification"]
+    assert v["command"] == "orig-command"     # plan "cmd" must not win
+    assert v["dataset_rows"] == ["orig row"]
+    assert v["report"] == "orig-report"
+    assert v["fix_commit"] == "origcommit"
+    assert v["fix_pr"] == "https://example.invalid/pull/1"
+    assert v["verifier"] == "orig-verifier"
+    assert v["verified_at"] == "2026-01-01T00:00:00Z"
+
+
+def test_close_lifecycle_write_back(tmp_path, monkeypatch):
+    # A confirmed close writes the lifecycle back: the upstream mirror
+    # fields and the maintainer status hop through the audited
+    # transition path — never a bare fm["status"] assignment.
+    path = make_shadow(tmp_path, 504, status="verified", fm_extra={
+        "verification": {
+            "command": "cmd", "dataset_rows": ["alpha scenario"],
+            "report": "rep", "fix_commit": "31bc5e9",
+            "fix_pr": "https://example.invalid/pull/1",
+            "verifier": "t", "verified_at": "2026-01-01T00:00:00Z",
+        }})
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    views = iter([
+        {"state": "OPEN", "stateReason": None},
+        dict(load_fixture("gh_issue_view_closed.json")),
+    ])
+    monkeypatch.setattr(ii, "gh_json", lambda args: next(views))
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: ii.subprocess.CompletedProcess(
+                            ["gh", *args], 0))
+    rc = run_close(tmp_path, plan_path)
+    assert rc == 0
+    fm, _ = frontmatter_and_body(path)
+    assert fm["upstream_state"] == "closed"
+    assert fm["upstream_state_reason"] == "COMPLETED"
+    assert fm["status"] == "closed"
+    events = [h["event"] for h in fm["history"]]
+    assert events.count("upstream-close: executed (gh)") == 1
+    assert events.count("status: verified -> closed") == 1
+
+
+def test_close_hop_failure_flags_entry(tmp_path, monkeypatch, capsys):
+    # The upstream close is real even when the bookkeeping hop fails —
+    # flag the entry for review rather than crashing or lying.
+    path = make_shadow(tmp_path, 504)
+    plan_path = make_closure_plan(tmp_path, [replay_entry(504)])
+    views = iter([
+        {"state": "OPEN", "stateReason": None},
+        dict(load_fixture("gh_issue_view_closed.json")),
+    ])
+    monkeypatch.setattr(ii, "gh_json", lambda args: next(views))
+    monkeypatch.setattr(ii, "gh_run",
+                        lambda args: ii.subprocess.CompletedProcess(
+                            ["gh", *args], 0))
+    monkeypatch.setattr(ii, "transition_status",
+                        lambda path, new_status, **kw: (False, "forced fail"))
+    rc = run_close(tmp_path, plan_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "ERROR ISSUE-504" in err
+
+
+def test_status_reconcile_hop_upstream_closed(tmp_path):
+    # Upstream-closed mirror truth legitimizes the hop from ANY
+    # non-closed source status — the file's own upstream_state is the
+    # gate, not the TRANSITIONS map.
+    path = make_shadow(tmp_path, 1, status="triaged",
+                       fm_extra={"upstream_state": "closed",
+                                 "upstream_state_reason": "COMPLETED"})
+    rc = run_status(tmp_path, "1", "closed")
+    assert rc == 0
+    fm, _ = frontmatter_and_body(path)
+    assert fm["status"] == "closed"
+    events = [h["event"] for h in fm["history"]]
+    assert "status: triaged -> closed" in events
+
+
+def test_status_reconcile_refused_upstream_open(tmp_path):
+    # The map stays strict when the mirror is not closed — the
+    # generalized edge cannot silently become a second primary.
+    path = make_shadow(tmp_path, 1, status="triaged")
+    before = path.read_text()
+    rc = run_status(tmp_path, "1", "closed")
+    assert rc != 0
+    assert path.read_text() == before
+
+
+def test_status_reconcile_refused_self_loop(tmp_path, capsys):
+    # A closed -> closed self-loop fabricates history rather than
+    # correcting drift — refused even on upstream-closed files.
+    path = make_shadow(tmp_path, 1, status="closed",
+                       fm_extra={"upstream_state": "closed",
+                                 "upstream_state_reason": "COMPLETED"})
+    before = path.read_text()
+    rc = run_status(tmp_path, "1", "closed")
+    assert rc != 0
+    assert "invalid transition closed -> closed" in capsys.readouterr().err
+    assert path.read_text() == before
 
 
 def test_close_refuses_malformed_plans(tmp_path, monkeypatch, capsys):
