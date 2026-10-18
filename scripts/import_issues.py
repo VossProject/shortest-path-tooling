@@ -1698,6 +1698,15 @@ def cmd_close(args: argparse.Namespace) -> int:
             print(f"ERROR {args.plan}: entry[{i}].reason must be "
                   "'completed'", file=sys.stderr)
             malformed = True
+    # The plan's top-level command/report feed the write-back's
+    # verification fill-gap merge — they land in shadow frontmatter, so
+    # they take the same string-or-null shape check as the entry fields.
+    for field in ("command", "report"):
+        if (plan.get(field) is not None
+                and not isinstance(plan.get(field), str)):
+            print(f"ERROR {args.plan}: {field} must be a string or "
+                  "null", file=sys.stderr)
+            malformed = True
     if malformed:
         return 1
     if not entries:

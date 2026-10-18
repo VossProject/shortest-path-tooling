@@ -2743,6 +2743,11 @@ def test_close_refuses_malformed_plans(tmp_path, monkeypatch, capsys):
                       if k != "kind"}]},                 # kind required
         {"entries": [{k: v for k, v in replay_entry(504).items()
                       if k != "reason"}]},               # reason required
+        # Top-level command/report reach shadow frontmatter through the
+        # write-back merge — a non-string shape is refused up front too.
+        {"entries": [replay_entry(504)], "command": ["x"]},
+        {"entries": [replay_entry(504)], "report": {"a": 1}},
+        {"entries": [replay_entry(504)], "report": 7},
     ]
     for i, bad in enumerate(bad_plans):
         path = tmp_path / f"bad-{i}.json"
